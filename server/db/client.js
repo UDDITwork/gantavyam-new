@@ -38,8 +38,10 @@ function normalizeArg(value) {
 }
 
 class Database {
-  constructor() {
+  constructor(options = {}) {
+    this._createClient = options.createClient || createClient; // injectable for tests
     this.client = null;
+    this.url = '';
     this.readyState = 0;
     this.name = '';
     this.host = '';
@@ -90,7 +92,8 @@ class Database {
     }
 
     try {
-      this.client = createClient({ url, authToken });
+      this.url = url;
+      this.client = this._createClient({ url, authToken });
       await this.client.execute('SELECT 1');
     } catch (error) {
       this.readyState = 0;

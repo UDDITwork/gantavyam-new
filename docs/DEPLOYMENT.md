@@ -24,7 +24,7 @@ export GCP_ACCOUNT=<you@example.com>
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com \
   --project "$GCP_PROJECT" --account "$GCP_ACCOUNT"
 
-# store the secrets in Secret Manager (prompts for the Turso URL/token, the admin password, ...)
+# store the secrets in Secret Manager (asks for the Turso token and the admin e-mail/password; set TURSO_DATABASE_URL first to skip the URL question)
 bash hosting/create-secrets.sh
 
 # build and deploy; ALLOWED_ORIGINS lists the frontend URLs that may call the API (comma separated)
