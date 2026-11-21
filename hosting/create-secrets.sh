@@ -65,19 +65,51 @@ esac
 echo "   Connecting over: $TURSO_URL"
 put_secret turso-database-url "$TURSO_URL"
 
+# A Turso token is three base64url parts separated by two dots (a JWT). A token that was pasted twice or
+# cut off is rejected by Turso with HTTP 400, so look for that before anything is stored.
+check_token_shape() {
+  local t="$1" sig
+  if ! [[ "$t" =~ ^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$ ]]; then
+    echo "   That is not one single token (it should be three parts with two dots). It may have been pasted twice."
+    return 1
+  fi
+  sig="${t##*.}"
+  if [ "${#sig}" -lt 80 ]; then
+    echo "   The token looks cut off at the end. Copy it again with the copy button."
+    return 1
+  fi
+}
+
+# Ask Turso itself whether it accepts the token. Prints the HTTP status (200 = accepted).
+turso_status() {
+  printf 'Authorization: Bearer %s\n' "$2" | curl -s -m 25 -o /dev/null -w '%{http_code}' -X POST "$1/v2/pipeline" \
+    -H @- -H 'Content-Type: application/json' \
+    -d '{"baton":null,"requests":[{"type":"execute","stmt":{"sql":"SELECT 1","want_rows":false}},{"type":"close"}]}' || true
+}
+
 TURSO_TOKEN=""
 while [ -z "$TURSO_TOKEN" ]; do
-  read -rsp "   Turso database token (hidden): " TURSO_TOKEN; echo
+  read -rsp "   Turso database token (hidden, paste it once): " TURSO_TOKEN; echo
   TURSO_TOKEN="$(clean "$TURSO_TOKEN")"
-  if [ -z "$TURSO_TOKEN" ] && secret_exists turso-auth-token; then echo "  kept existing turso-auth-token"; break; fi
-  case "$TURSO_TOKEN" in
-    eyJ*.*.*) ;;
-    "") ;;
-    *) echo "   That does not look like a Turso token (it should start with eyJ). Try again."; TURSO_TOKEN="" ;;
+  if [ -z "$TURSO_TOKEN" ]; then echo "   Nothing was pasted. Try again."; continue; fi
+  if ! check_token_shape "$TURSO_TOKEN"; then TURSO_TOKEN=""; continue; fi
+  status="$(turso_status "$TURSO_URL" "$TURSO_TOKEN")"
+  case "$status" in
+    200) echo "   Turso accepted the token." ;;
+    400) echo "   Turso says the token is malformed (HTTP 400). Copy it again and paste it once."; TURSO_TOKEN="" ;;
+    401|403) echo "   Turso rejected this token (HTTP $status). Create a new token for this database and paste that."; TURSO_TOKEN="" ;;
+    *) echo "   Could not check the token with Turso (HTTP ${status:-none}). Check your internet connection and try again."; TURSO_TOKEN="" ;;
   esac
 done
-if [ -n "$TURSO_TOKEN" ]; then put_secret turso-auth-token "$TURSO_TOKEN"; fi
+put_secret turso-auth-token "$TURSO_TOKEN"
 unset TURSO_TOKEN
+
+# ONLY_TOKEN=1 replaces just the Turso token (for example after creating a new one)
+if [ "${ONLY_TOKEN:-}" = "1" ]; then
+  echo
+  echo "Token updated. You can close this window and tell Claude it is finished."
+  exit 0
+fi
 
 echo
 echo "2) Admin login for the dashboard"
