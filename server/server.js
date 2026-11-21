@@ -56,28 +56,51 @@ const databaseOptions = {
   authToken: process.env.TURSO_AUTH_TOKEN
 };
 
-mongoose.connect(databaseOptions)
-.then(async () => {
+// Connect to the database, retrying with a growing pause until it works.
+async function startDatabase() {
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      await mongoose.connect(databaseOptions);
+      break;
+    } catch (err) {
+      logger.error(`Database connection failed (attempt ${attempt})`, { error: err.message });
+      if (attempt === 1) {
+        logger.error('Check TURSO_DATABASE_URL (libsql://... or file:...) and TURSO_AUTH_TOKEN');
+      }
+      await new Promise((resolve) => setTimeout(resolve, Math.min(30000, 5000 * attempt)));
+    }
+  }
+
   logger.info('Database connected successfully', {
     database: mongoose.connection.host // host only, never the auth token
   });
 
+  // Each start-up task is independent: one failing must not stop the others
+  const runTask = async (name, task) => {
+    try {
+      await task();
+    } catch (error) {
+      logger.error(`Start-up task failed: ${name}`, { error: error.message, stack: error.stack });
+    }
+  };
+
   // Sync User indexes so the sparse unique index on email is correct
-  const User = require('./models/User');
-  await User.syncIndexes();
+  await runTask('User indexes', () => require('./models/User').syncIndexes());
 
   // Print database statistics on startup
-  printDriverStats();
-  // Ensure default admin exists
-  await Admin.createDefaultAdmin();
-  // Update existing admin permissions to match current role definitions
-  await Admin.updateAdminPermissions();
+  Promise.resolve(printDriverStats()).catch((error) => logger.error('Driver statistics failed', { error: error.message }));
+
+  // Ensure the default admin exists, and that every admin has the permissions of their role
+  await runTask('default admin', () => Admin.createDefaultAdmin());
+  await runTask('admin permissions', () => Admin.updateAdminPermissions());
 
   // Seed metro stations if not present
-  try {
+  await runTask('metro stations', async () => {
     const MetroStation = require('./models/MetroStation');
     const stationCount = await MetroStation.countDocuments();
-    
+
     if (stationCount === 0) {
       logger.info('No metro stations found, seeding data...');
       await seedMetroStations();
@@ -85,36 +108,15 @@ mongoose.connect(databaseOptions)
     } else {
       logger.info(`Metro stations already exist (${stationCount} stations)`);
     }
-  } catch (error) {
-    logger.error('Error checking/seeding metro stations:', error);
-  }
-  
+  });
+
   // Setup periodic database monitoring
   setInterval(async () => {
     await printDriverStats();
   }, 30 * 60 * 1000); // Every 30 minutes
-})
-.catch(err => {
-  logger.error('Database connection error', {
-    error: err.message,
-    stack: err.stack
-  });
-  logger.error('Database connection failed - possible solutions:');
-  logger.error('1. Check TURSO_DATABASE_URL (libsql://... or file:...) and TURSO_AUTH_TOKEN');
-  logger.error('2. Check your internet connection');
-  logger.error('3. Use a local file database for development: TURSO_DATABASE_URL=file:./data/gantavyam.db');
+}
 
-  // Don't exit immediately, allow for retry
-  setTimeout(() => {
-    logger.info('Retrying database connection...');
-    mongoose.connect(databaseOptions)
-      .then(() => logger.info('Database connected on retry'))
-      .catch(() => {
-        logger.error('Database retry failed. Exiting...');
-        process.exit(1);
-      });
-  }, 5000);
-});
+startDatabase();
 
 // Define Routes
 app.use('/api/drivers', require('./routes/drivers'));

@@ -70,16 +70,15 @@ const logger = winston.createLogger({
   ]
 });
 
-// Add console transport for development
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(new winston.transports.Console({
-    format: winston.format.combine(
-      winston.format.colorize(),
-      winston.format.simple(),
-      logFormat
-    )
-  }));
-}
+// Always log to the console as well: Cloud Run (and most hosts) collect stdout, while log files inside
+// a container are lost on every restart. Colours only make sense in a developer's terminal.
+logger.add(new winston.transports.Console({
+  format: winston.format.combine(
+    ...(process.env.NODE_ENV === 'production' ? [] : [winston.format.colorize()]),
+    winston.format.simple(),
+    logFormat
+  )
+}));
 
 // Create logging methods for different contexts
 const createContextLogger = (context) => {

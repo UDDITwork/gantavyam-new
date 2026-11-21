@@ -10,3 +10,6 @@ driver-earnings-backup-*.json
 Dockerfile
 .dockerignore
 .gcloudignore
+data
+*.db
+*.db-*

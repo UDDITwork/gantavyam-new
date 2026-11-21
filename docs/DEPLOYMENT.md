@@ -35,7 +35,7 @@ The service runs as **one always-on instance** (`--min-instances 1 --max-instanc
 connections and the background timers (queue clean-up, TTL sweeper) live in that process's memory. Cloud Run closes
 a WebSocket after the request timeout (set to 60 minutes); the clients reconnect on their own.
 
-The script prints the service URL, e.g. `https://gantavyam-backend-xxxxx-el.a.run.app`.
+The script also gives the project's default build identity Google's "Cloud Run Builder" role (needed by new projects to build from source). It prints the service URL, e.g. `https://gantavyam-backend-xxxxx-el.a.run.app`.
 
 Settings the backend reads (see `server/.env.example`): `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `JWT_SECRET`,
 `DEFAULT_ADMIN_EMAIL`, `DEFAULT_ADMIN_PASSWORD`, `ALLOWED_ORIGINS`, and optionally `CLOUDINARY_*`, `TWILIO_*`,

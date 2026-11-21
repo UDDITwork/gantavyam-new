@@ -9,3 +9,6 @@ logs/
 uploads/
 *.log
 driver-earnings-backup-*.json
+data/
+*.db
+*.db-*

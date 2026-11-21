@@ -97,6 +97,13 @@ class Database {
       await this.client.execute('SELECT 1');
     } catch (error) {
       this.readyState = 0;
+      let target = url;
+      try {
+        if (!url.startsWith('file:')) target = new URL(url).host; // never log anything but the host
+      } catch (e) {
+        target = '(invalid database URL)';
+      }
+      error.message = `Could not connect to the database at ${target}: ${error.message}`;
       throw error;
     }
 

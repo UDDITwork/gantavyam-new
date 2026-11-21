@@ -54,6 +54,10 @@ done
 # The service's runtime identity needs to read its own secrets (and nothing else)
 PROJECT_NUMBER="$(g projects describe "$GCP_PROJECT" --format='value(projectNumber)')"
 RUNTIME_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+
+# New projects build from source with this default identity, which needs Google's "Cloud Run Builder"
+# role (the build fails with a storage.objects.get 403 otherwise). Safe to repeat.
+g projects add-iam-policy-binding "$GCP_PROJECT" --member "serviceAccount:${RUNTIME_SA}" --role roles/run.builder --condition=None >/dev/null
 for s in $SECRETS; do
   if secret_exists "$s"; then
     g secrets add-iam-policy-binding "$s" --member "serviceAccount:${RUNTIME_SA}" --role roles/secretmanager.secretAccessor >/dev/null
