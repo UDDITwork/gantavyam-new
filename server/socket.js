@@ -484,18 +484,7 @@ const initializeSocket = (server) => {
   
   io = socketIO(server, {
     cors: {
-      origin: [
-        "http://localhost:3000", // Frontend development server
-        "http://localhost:3001", // Alternative frontend port
-        "https://gt2-seven.vercel.app",
-        "https://gantavyam.site",
-        "https://www.gantavyam.site", // Main production domain
-        "https://gt2-evx6vat1j-rohan-sainis-projects.vercel.app",
-        "https://gt2-2.onrender.com",
-        "https://gt3-nkqc.onrender.com",
-        "https://gt3-nine.vercel.app",
-        "https://project-gantavyam.onrender.com" // Render backend URL
-      ],
+      origin: config.allowedOrigins, // shared with the Express CORS setup (see config/config.js)
       methods: ["GET", "POST"],
       credentials: true
     },

@@ -34,7 +34,9 @@ module.exports = {
     'https://gt3-nine.vercel.app',
     'https://project-gantavyam.onrender.com',
     'https://gantavyam-private.onrender.com', // New Render backend
-    'https://gantavyam-private-g7furf61b-rohan-sainis-projects.vercel.app' // Vercel preview
+    'https://gantavyam-private-g7furf61b-rohan-sainis-projects.vercel.app', // Vercel preview
+    // Extra origins from the environment (comma-separated), e.g. the Vercel URL of a new deployment
+    ...(process.env.ALLOWED_ORIGINS || '').split(',').map((origin) => origin.trim())
   ].filter(Boolean),
   
   // File upload paths

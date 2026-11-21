@@ -1,8 +1,11 @@
 // client/src/config.js
 
-// Get URLs from environment variables
-const API_URL_PRODUCTION = process.env.REACT_APP_API_URL_PRODUCTION || 'https://gantavyam-private.onrender.com/api';
-const SOCKET_URL_PRODUCTION = process.env.REACT_APP_SOCKET_URL_PRODUCTION || 'https://gantavyam-private.onrender.com';
+// Get URLs from environment variables. Production URLs are set at build time (e.g. in Vercel):
+// REACT_APP_API_URL and REACT_APP_SOCKET_URL (the *_PRODUCTION names are still honoured).
+// There is deliberately no hardcoded production fallback, so a missing variable fails loudly
+// instead of silently talking to a different backend.
+const API_URL_PRODUCTION = process.env.REACT_APP_API_URL_PRODUCTION || process.env.REACT_APP_API_URL || '';
+const SOCKET_URL_PRODUCTION = process.env.REACT_APP_SOCKET_URL_PRODUCTION || process.env.REACT_APP_SOCKET_URL || '';
 const API_URL_LOCAL = process.env.REACT_APP_API_URL_LOCAL || 'http://localhost:5000/api';
 const SOCKET_URL_LOCAL = process.env.REACT_APP_SOCKET_URL_LOCAL || 'http://localhost:5000';
 
@@ -12,6 +15,10 @@ const isDevelopment = process.env.NODE_ENV === 'development' || window.location.
 // Initialize with appropriate URLs based on environment
 let API_URL = isDevelopment ? API_URL_LOCAL : API_URL_PRODUCTION;
 let SOCKET_URL = isDevelopment ? SOCKET_URL_LOCAL : SOCKET_URL_PRODUCTION;
+
+if (!isDevelopment && (!API_URL || !SOCKET_URL)) {
+  console.error('REACT_APP_API_URL / REACT_APP_SOCKET_URL are not set for this build; API calls will fail.');
+}
 
 // Simple configuration without auto-detection to avoid fetch errors
 if (process.env.REACT_APP_ENABLE_AUTO_FALLBACK === 'true' && !isDevelopment) {
