@@ -52,3 +52,10 @@ Import the repository, then set:
   * `REACT_APP_GOOGLE_MAPS_API_KEY` = your Google Maps key (allow the Vercel domain in the key's HTTP referrer restrictions)
 
 Deploy, then add the Vercel URL to the backend's `ALLOWED_ORIGINS` and re-run `hosting/deploy-backend.sh`.
+
+## Uploaded files (driver documents, profile photos)
+
+The backend saves uploads to its `uploads/` folder. On Cloud Run that folder is a private Google Cloud Storage
+bucket (`gantavyam-uploads-<project-number>`, created and mounted by `hosting/deploy-backend.sh`), so files survive
+restarts and redeploys. The database only stores each file's URL. If you configure Cloudinary instead
+(`CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`), uploads go there first and the bucket is the fallback.

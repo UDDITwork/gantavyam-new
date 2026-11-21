@@ -12,6 +12,9 @@
 # Run this from the repository root.
 set -euo pipefail
 
+# Git Bash on Windows would rewrite the "/app/uploads" in the volume-mount argument into a Windows path
+export MSYS2_ARG_CONV_EXCL="volume="
+
 : "${GCP_PROJECT:?Set GCP_PROJECT to your Google Cloud project id}"
 : "${GCP_ACCOUNT:?Set GCP_ACCOUNT to the Google account to use}"
 REGION="${REGION:-asia-south1}"
@@ -64,7 +67,16 @@ for s in $SECRETS; do
   fi
 done
 
+# Uploaded driver documents and photos live in a private bucket that is mounted as the app's uploads
+# folder. A Cloud Run container's own disk is wiped on every restart, the bucket is not.
+BUCKET="${UPLOADS_BUCKET:-gantavyam-uploads-${PROJECT_NUMBER}}"
+if ! g storage buckets describe "gs://${BUCKET}" >/dev/null 2>&1; then
+  g storage buckets create "gs://${BUCKET}" --location "$REGION" --uniform-bucket-level-access --public-access-prevention
+fi
+g storage buckets add-iam-policy-binding "gs://${BUCKET}" --member "serviceAccount:${RUNTIME_SA}" --role roles/storage.objectAdmin >/dev/null
+
 # One always-on instance: Socket.IO connections and the background timers live in memory.
+# --update-env-vars keeps settings that are not named here (for example ALLOWED_ORIGINS set earlier).
 g run deploy "$SERVICE" \
   --source server \
   --region "$REGION" \
@@ -74,7 +86,10 @@ g run deploy "$SERVICE" \
   --min-instances 1 --max-instances 1 \
   --no-cpu-throttling \
   --timeout 3600 \
-  --set-env-vars "^@^${ENV_VARS}" \
+  --execution-environment gen2 \
+  --add-volume "name=uploads,type=cloud-storage,bucket=${BUCKET}" \
+  --add-volume-mount "volume=uploads,mount-path=/app/uploads" \
+  --update-env-vars "^@^${ENV_VARS}" \
   --set-secrets "$(IFS=,; echo "${SECRET_ARGS[*]}")"
 
 echo
