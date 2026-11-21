@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+const mongoose = require('./db');
 require('dotenv').config();
 
 // Function to calculate driver fare from distance and vehicle type (matches FareConfig)

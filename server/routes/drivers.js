@@ -671,10 +671,10 @@ router.get('/metro-stations', async (req, res) => {
   try {
     console.log('\n=== GET METRO STATIONS FOR DRIVER ===');
     console.log('Request headers:', req.headers);
-    console.log('Database connection state:', require('mongoose').connection.readyState);
+    console.log('Database connection state:', require('../db').connection.readyState);
     
     // Check database connection
-    if (require('mongoose').connection.readyState !== 1) {
+    if (require('../db').connection.readyState !== 1) {
       console.error('❌ Database not connected');
       return res.status(503).json({
         success: false,
@@ -749,7 +749,7 @@ router.get('/debug/metro-stations', async (req, res) => {
   try {
     console.log('\n=== DEBUG METRO STATIONS ===');
     
-    const mongoose = require('mongoose');
+    const mongoose = require('../db');
     const dbState = mongoose.connection.readyState;
     const dbStates = ['disconnected', 'connected', 'connecting', 'disconnecting'];
     
@@ -1283,7 +1283,7 @@ router.get('/earnings', protect, async (req, res) => {
     const earningsData = await RideHistory.aggregate([
       {
         $match: {
-          driverId: require('mongoose').Types.ObjectId(driverId),
+          driverId: require('../db').Types.ObjectId(driverId),
           status: 'completed',
           createdAt: { $gte: startDate, $lte: now }
         }
@@ -1570,7 +1570,7 @@ router.get('/pending-rides', protect, async (req, res) => {
 
     // Find pending rides - include both broadcast rides AND manual bookings targeted to this driver
     const RideRequest = require('../models/RideRequest');
-    const mongoose = require('mongoose');
+    const mongoose = require('../db');
 
     const pendingRides = await RideRequest.find({
       $or: [

@@ -34,18 +34,18 @@ check_server() {
     fi
 }
 
-# Function to check MongoDB connection
-check_mongodb() {
-    echo -e "${YELLOW}Checking MongoDB connection...${NC}"
+# Function to check the database connection
+check_database() {
+    echo -e "${YELLOW}Checking database connection...${NC}"
     
     # Check server status endpoint
     STATUS=$(curl -s "$SERVER_URL/api/status" | grep -o '"connected":[^,]*' | cut -d':' -f2)
     
     if [[ "$STATUS" == "true" ]]; then
-        echo -e "${GREEN}✓ MongoDB is connected${NC}"
+        echo -e "${GREEN}✓ Database is connected${NC}"
         return 0
     else
-        echo -e "${RED}✗ MongoDB connection failed${NC}"
+        echo -e "${RED}✗ Database connection failed${NC}"
         return 1
     fi
 }
@@ -178,7 +178,7 @@ main() {
         exit 1
     fi
     
-    if ! check_mongodb; then
+    if ! check_database; then
         exit 1
     fi
     

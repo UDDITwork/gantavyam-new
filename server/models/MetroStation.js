@@ -1,5 +1,5 @@
 // models/MetroStation.js
-const mongoose = require('mongoose');
+const mongoose = require('../db');
 
 const MetroStationSchema = new mongoose.Schema({
   id: {

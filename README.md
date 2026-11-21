@@ -85,7 +85,7 @@ Split fares, set up business profiles, or use subscription plans—our flexible 
 <p align="center">
   <img src="https://img.shields.io/badge/React-Native-61DAFB?style=for-the-badge&logo=react" alt="React Native">
   <img src="https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs" alt="Node.js">
-  <img src="https://img.shields.io/badge/MongoDB-47A248?style=for-the-badge&logo=mongodb" alt="MongoDB">
+  <img src="https://img.shields.io/badge/Turso-4FF8D2?style=for-the-badge&logo=turso&logoColor=black" alt="Turso (libSQL)">
   <img src="https://img.shields.io/badge/Socket.IO-010101?style=for-the-badge&logo=socketdotio" alt="Socket.IO">
   <img src="https://img.shields.io/badge/Google-Maps-4285F4?style=for-the-badge&logo=googlemaps" alt="Google Maps API">
   <img src="https://img.shields.io/badge/AI-Voice-Processing-0081CB?style=for-the-badge" alt="AI Voice Processing">

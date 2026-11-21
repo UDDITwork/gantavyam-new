@@ -9,7 +9,7 @@
  * Run with: node migrate-driver-fares.js
  */
 
-const mongoose = require('mongoose');
+const mongoose = require('./db');
 const RideRequest = require('./models/RideRequest');
 const { calculateFare } = require('./utils/fareCalculator');
 

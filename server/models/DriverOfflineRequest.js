@@ -3,7 +3,7 @@
  * Manages driver requests to go offline (requires admin approval)
  * Part of Admin-Only Queue Management System
  */
-const mongoose = require('mongoose');
+const mongoose = require('../db');
 
 const DriverOfflineRequestSchema = new mongoose.Schema({
   // Driver reference

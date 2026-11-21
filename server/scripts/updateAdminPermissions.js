@@ -1,7 +1,7 @@
 // scripts/updateAdminPermissions.js
 // Script to update existing admin accounts with new permissions
 
-const mongoose = require('mongoose');
+const mongoose = require('../db');
 const path = require('path');
 
 // Load environment variables

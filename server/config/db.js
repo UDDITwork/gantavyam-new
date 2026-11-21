@@ -1,14 +1,14 @@
-const mongoose = require('mongoose');
+const mongoose = require('../db');
 
+// Connects to Turso / libSQL (or a local file database for development).
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGO_URL, {
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-      family: 4
+    const conn = await mongoose.connect({
+      url: process.env.TURSO_DATABASE_URL,
+      authToken: process.env.TURSO_AUTH_TOKEN
     });
 
-    console.log(`MongoDB Connected: ${conn.connection.host}`);
+    console.log(`Database connected: ${conn.connection.host}`);
   } catch (error) {
     console.error(`Error: ${error.message}`);
     process.exit(1);

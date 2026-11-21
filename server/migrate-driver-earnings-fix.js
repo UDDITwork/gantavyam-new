@@ -9,7 +9,7 @@
  * SAFETY: This script creates a backup before making changes
  */
 
-const mongoose = require('mongoose');
+const mongoose = require('./db');
 const fs = require('fs');
 const path = require('path');
 

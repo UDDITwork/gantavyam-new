@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+const mongoose = require('../db');
 
 const rideRequestSchema = new mongoose.Schema({
   userId: {

@@ -1,5 +1,5 @@
 const express = require('express');
-const mongoose = require('mongoose');
+const mongoose = require('./db');
 const cors = require('cors');
 const path = require('path');
 const http = require('http');
@@ -72,13 +72,13 @@ if (!fs.existsSync(profileImagesDir)) {
 // Serve static files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Connect to MongoDB
-mongoose.connect(config.mongoURI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
+// Connect to the database (Turso / libSQL)
+mongoose.connect({
+  url: process.env.TURSO_DATABASE_URL,
+  authToken: process.env.TURSO_AUTH_TOKEN
 })
 .then(async () => {
-  console.log('Connected to MongoDB');
+  console.log('Connected to database');
   
   // Seed metro stations data on first run
   try {
@@ -95,7 +95,7 @@ mongoose.connect(config.mongoURI, {
     console.error('Error checking/seeding metro stations:', error);
   }
 })
-.catch(err => console.error('MongoDB connection error:', err));
+.catch(err => console.error('Database connection error:', err));
 
 // Routes
 app.use('/api/auth', authRoutes);

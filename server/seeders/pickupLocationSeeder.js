@@ -87,7 +87,7 @@ module.exports = {
 
 // Run seeder if called directly
 if (require.main === module) {
-  const mongoose = require('mongoose');
+  const mongoose = require('../db');
   
   // Connect to database
   require('dotenv').config();

@@ -1,5 +1,5 @@
 require('dotenv').config();
-const mongoose = require('mongoose');
+const mongoose = require('./db');
 const Driver = require('./models/Driver');
 
 async function clearCurrentRides() {

@@ -5,7 +5,7 @@
  * Run this after deploying the fixes to ensure everything is working correctly
  */
 
-const mongoose = require('mongoose');
+const mongoose = require('./db');
 
 async function verifyFareFixes() {
   try {

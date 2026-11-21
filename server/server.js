@@ -1,7 +1,7 @@
 // server.js
 const express = require('express');
 const cors = require('cors');
-const mongoose = require('mongoose');
+const mongoose = require('./db');
 const dotenv = require('dotenv');
 const path = require('path');
 const fs = require('fs');
@@ -49,16 +49,17 @@ app.use('/uploads', (req, res, next) => {
   next();
 });
 
-// Connect to MongoDB
-const mongoOptions = {
-  serverSelectionTimeoutMS: 10000, // 10 seconds
-  socketTimeoutMS: 45000,
+// Connect to the database (Turso / libSQL).
+// TURSO_DATABASE_URL is libsql://<db>.turso.io in production, or file:./data/gantavyam.db for local development.
+const databaseOptions = {
+  url: process.env.TURSO_DATABASE_URL,
+  authToken: process.env.TURSO_AUTH_TOKEN
 };
 
-mongoose.connect(process.env.MONGO_URL, mongoOptions)
+mongoose.connect(databaseOptions)
 .then(async () => {
-  logger.info('MongoDB Connected successfully', {
-    mongoUrl: process.env.MONGO_URL?.replace(/:([^:@]{1,})@/, ':***@') // Hide password in logs
+  logger.info('Database connected successfully', {
+    database: mongoose.connection.host // host only, never the auth token
   });
 
   // Sync User indexes so the sparse unique index on email is correct
@@ -94,23 +95,22 @@ mongoose.connect(process.env.MONGO_URL, mongoOptions)
   }, 30 * 60 * 1000); // Every 30 minutes
 })
 .catch(err => {
-  logger.error('MongoDB connection error', { 
-    error: err.message, 
-    stack: err.stack 
+  logger.error('Database connection error', {
+    error: err.message,
+    stack: err.stack
   });
-  logger.error('MongoDB Connection Failed - Possible solutions:');
-  logger.error('1. Check your internet connection');
-  logger.error('2. Verify MongoDB Atlas is accessible (not blocked by firewall)');
-  logger.error('3. Check if your IP is whitelisted in MongoDB Atlas');
-  logger.error('4. Try using a local MongoDB instance for development');
-  
+  logger.error('Database connection failed - possible solutions:');
+  logger.error('1. Check TURSO_DATABASE_URL (libsql://... or file:...) and TURSO_AUTH_TOKEN');
+  logger.error('2. Check your internet connection');
+  logger.error('3. Use a local file database for development: TURSO_DATABASE_URL=file:./data/gantavyam.db');
+
   // Don't exit immediately, allow for retry
   setTimeout(() => {
-    logger.info('Retrying MongoDB connection...');
-    mongoose.connect(process.env.MONGO_URL, mongoOptions)
-      .then(() => logger.info('MongoDB Connected on retry'))
+    logger.info('Retrying database connection...');
+    mongoose.connect(databaseOptions)
+      .then(() => logger.info('Database connected on retry'))
       .catch(() => {
-        logger.error('MongoDB retry failed. Exiting...');
+        logger.error('Database retry failed. Exiting...');
         process.exit(1);
       });
   }, 5000);
@@ -135,7 +135,13 @@ app.get('/', (req, res) => {
   res.send('API is running...');
 });
 
-// MongoDB monitoring route
+// Health check (used by Cloud Run and uptime monitors)
+app.get("/api/health", (req, res) => {
+  const connected = mongoose.connection.readyState === 1;
+  res.status(connected ? 200 : 503).json({ status: connected ? "ok" : "unavailable", database: connected ? "connected" : "disconnected" });
+});
+
+// Database monitoring route
 app.get('/api/status', async (req, res) => {
   try {
     const Driver = mongoose.model('Driver');

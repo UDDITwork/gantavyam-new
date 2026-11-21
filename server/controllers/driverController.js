@@ -4,7 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const config = require('../config/config');
 const path = require('path');
-const mongoose = require('mongoose');
+const mongoose = require('../db');
 
 // @desc    Register new driver (by driver signup)
 // @route   POST /api/drivers/register

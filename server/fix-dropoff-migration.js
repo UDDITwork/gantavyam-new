@@ -7,7 +7,7 @@
  * by attempting to recover the information from various sources.
  */
 
-const mongoose = require('mongoose');
+const mongoose = require('./db');
 const RideRequest = require('./models/RideRequest');
 const RideHistory = require('./models/RideHistory');
 

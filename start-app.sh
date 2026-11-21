@@ -2,16 +2,9 @@
 
 echo "Starting GANTAVYAM Application..."
 
-# Check if MongoDB is running
-if ! sudo systemctl is-active --quiet mongod; then
-    echo "Starting MongoDB..."
-    sudo systemctl start mongod
-    sleep 3
-fi
-
-# Check MongoDB status
-echo "MongoDB status:"
-sudo systemctl status mongod --no-pager -l
+# Local development database: a SQLite file, no database server needed.
+# Point TURSO_DATABASE_URL at a libsql:// URL (with TURSO_AUTH_TOKEN) to test against Turso instead.
+export TURSO_DATABASE_URL="${TURSO_DATABASE_URL:-file:./data/gantavyam.db}"
 
 # Load nvm if available
 export NVM_DIR="$HOME/.nvm"
@@ -65,7 +58,7 @@ echo "Frontend PID: $FRONTEND_PID"
 echo ""
 echo "Frontend: http://localhost:3000"
 echo "Backend API: http://localhost:5000/api"
-echo "MongoDB: mongodb://localhost:27017/gantavyam"
+echo "Database: $TURSO_DATABASE_URL"
 echo ""
 echo "Press Ctrl+C to stop both servers"
 echo "========================="

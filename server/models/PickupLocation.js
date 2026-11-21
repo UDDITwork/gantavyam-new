@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+const mongoose = require('../db');
 
 const pickupLocationSchema = new mongoose.Schema({
   // Unique identifier

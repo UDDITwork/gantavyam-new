@@ -2,7 +2,7 @@
  * DriverOnlineRequest Model
  * Manages driver requests to go online (requires admin approval)
  */
-const mongoose = require('mongoose');
+const mongoose = require('../db');
 
 const DriverOnlineRequestSchema = new mongoose.Schema({
   // Driver reference

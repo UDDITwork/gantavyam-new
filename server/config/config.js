@@ -2,13 +2,9 @@
 require('dotenv').config(); // Load environment variables from .env file
 
 // Determine if we're in development mode
-const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.MONGO_URL;
+const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.TURSO_DATABASE_URL;
 
 module.exports = {
-  // MongoDB connection URI - use local MongoDB in development, cloud in production
-  mongoURI: isDevelopment 
-    ? 'mongodb://localhost:27017/gantavyam'
-    : process.env.MONGO_URL,
 
   // JWT secret key for authentication - MUST be set in environment variables
   jwtSecret: (() => {

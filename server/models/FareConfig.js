@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+const mongoose = require('../db');
 
 // Vehicle pricing is now hardcoded as piecewise linear formulas in fareCalculator.js
 // No vehicle config stored in DB — only night charge settings are configurable

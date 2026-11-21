@@ -1,5 +1,5 @@
 // models/Driver.js
-const mongoose = require('mongoose');
+const mongoose = require('../db');
 
 const DriverSchema = new mongoose.Schema({
   fullName: {

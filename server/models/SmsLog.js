@@ -1,5 +1,5 @@
 // models/SmsLog.js
-const mongoose = require('mongoose');
+const mongoose = require('../db');
 
 const smsLogSchema = new mongoose.Schema({
   rideId: {

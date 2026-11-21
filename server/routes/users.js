@@ -132,7 +132,7 @@ router.get('/pickup-locations', async (req, res) => {
   try {
     console.log('\n=== GET PICKUP LOCATIONS FOR USER ===');
     console.log('Request headers:', req.headers);
-    console.log('Database connection state:', require('mongoose').connection.readyState);
+    console.log('Database connection state:', require('../db').connection.readyState);
     
     // Return only the fixed pickup location - Hauz Khas Metro Gate No 1
     const fixedLocation = {

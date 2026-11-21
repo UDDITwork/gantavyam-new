@@ -1,7 +1,7 @@
 // scripts/updateExecutiveManager.js
 // Script to update executive-manager permissions
 
-const mongoose = require('mongoose');
+const mongoose = require('../db');
 const path = require('path');
 
 // Load environment variables
