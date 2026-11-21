@@ -29,6 +29,9 @@ put_secret() {
   fi
 }
 
+# Copy/paste often brings along quotes, spaces or a carriage return: drop them
+clean() { printf %s "$1" | tr -d "\"' \r\n\t"; }
+
 # Same rule the Admin model uses for e-mail addresses
 EMAIL_RE='^[A-Za-z0-9_]+([.-]?[A-Za-z0-9_]+)*@[A-Za-z0-9_]+([.-]?[A-Za-z0-9_]+)*(\.[A-Za-z0-9_]{2,3})+$'
 
@@ -36,6 +39,7 @@ EMAIL_RE='^[A-Za-z0-9_]+([.-]?[A-Za-z0-9_]+)*@[A-Za-z0-9_]+([.-]?[A-Za-z0-9_]+)*
 ask_optional() {
   local name="$1" label="$2" mode="$3" value=""
   if [ "$mode" = "hidden" ]; then read -rsp "$label (Enter to skip): " value; echo; else read -rp "$label (Enter to skip): " value; fi
+  value="${value%$'\r'}"
   if [ -z "$value" ]; then echo "  skipped  $name"; else put_secret "$name" "$value"; fi
 }
 
@@ -52,6 +56,7 @@ echo
 echo "1) Database (Turso)"
 TURSO_URL="${TURSO_DATABASE_URL:-}"
 if [ -z "$TURSO_URL" ]; then read -rp "   Turso database URL: " TURSO_URL; fi
+TURSO_URL="$(clean "$TURSO_URL")"
 TURSO_URL="${TURSO_URL/libsql:\/\//https://}"   # always store the HTTPS form
 case "$TURSO_URL" in
   https://*) ;;
@@ -63,6 +68,7 @@ put_secret turso-database-url "$TURSO_URL"
 TURSO_TOKEN=""
 while [ -z "$TURSO_TOKEN" ]; do
   read -rsp "   Turso database token (hidden): " TURSO_TOKEN; echo
+  TURSO_TOKEN="$(clean "$TURSO_TOKEN")"
   if [ -z "$TURSO_TOKEN" ] && secret_exists turso-auth-token; then echo "  kept existing turso-auth-token"; break; fi
   case "$TURSO_TOKEN" in
     eyJ*.*.*) ;;
@@ -70,7 +76,7 @@ while [ -z "$TURSO_TOKEN" ]; do
     *) echo "   That does not look like a Turso token (it should start with eyJ). Try again."; TURSO_TOKEN="" ;;
   esac
 done
-[ -n "$TURSO_TOKEN" ] && put_secret turso-auth-token "$TURSO_TOKEN"
+if [ -n "$TURSO_TOKEN" ]; then put_secret turso-auth-token "$TURSO_TOKEN"; fi
 unset TURSO_TOKEN
 
 echo
@@ -78,15 +84,19 @@ echo "2) Admin login for the dashboard"
 ADMIN_EMAIL=""
 while [ -z "$ADMIN_EMAIL" ]; do
   read -rp "   Admin e-mail: " ADMIN_EMAIL
+  ADMIN_EMAIL="$(clean "$ADMIN_EMAIL")"
   if ! [[ "$ADMIN_EMAIL" =~ $EMAIL_RE ]]; then echo "   Please enter a valid e-mail address (for example name@gmail.com)."; ADMIN_EMAIL=""; fi
 done
 put_secret default-admin-email "$ADMIN_EMAIL"
 
 ADMIN_PASS=""
+ADMIN_PASS2=""
 while [ -z "$ADMIN_PASS" ]; do
   read -rsp "   Admin password, at least 8 characters (hidden): " ADMIN_PASS; echo
+  ADMIN_PASS="${ADMIN_PASS%$'\r'}"
   if [ "${#ADMIN_PASS}" -lt 8 ]; then echo "   Too short, try again."; ADMIN_PASS=""; continue; fi
   read -rsp "   Repeat the password (hidden): " ADMIN_PASS2; echo
+  ADMIN_PASS2="${ADMIN_PASS2%$'\r'}"
   if [ "$ADMIN_PASS" != "$ADMIN_PASS2" ]; then echo "   The two passwords differ, try again."; ADMIN_PASS=""; fi
 done
 put_secret default-admin-password "$ADMIN_PASS"
