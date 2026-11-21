@@ -3,7 +3,7 @@
 | Part | Where | How |
 |---|---|---|
 | Frontend (`client/`) | Vercel | connect this GitHub repo, root directory `client` |
-| Backend (`server/`) | Google Cloud Run | `deploy/deploy-backend.sh` (builds the image in Cloud Build) |
+| Backend (`server/`) | Google Cloud Run | `hosting/deploy-backend.sh` (builds the image in Cloud Build) |
 | Database | Turso | a hosted libSQL database, see `server/db/README.md` |
 
 ## 1. Turso database
@@ -25,10 +25,10 @@ gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregi
   --project "$GCP_PROJECT" --account "$GCP_ACCOUNT"
 
 # store the secrets in Secret Manager (prompts for the Turso URL/token, the admin password, ...)
-bash deploy/create-secrets.sh
+bash hosting/create-secrets.sh
 
 # build and deploy; ALLOWED_ORIGINS lists the frontend URLs that may call the API (comma separated)
-ALLOWED_ORIGINS=https://<your-app>.vercel.app bash deploy/deploy-backend.sh
+ALLOWED_ORIGINS=https://<your-app>.vercel.app bash hosting/deploy-backend.sh
 ```
 
 The service runs as **one always-on instance** (`--min-instances 1 --max-instances 1 --no-cpu-throttling`): Socket.IO
@@ -51,4 +51,4 @@ Import the repository, then set:
   * `REACT_APP_SOCKET_URL` = `https://<cloud-run-url>`
   * `REACT_APP_GOOGLE_MAPS_API_KEY` = your Google Maps key (allow the Vercel domain in the key's HTTP referrer restrictions)
 
-Deploy, then add the Vercel URL to the backend's `ALLOWED_ORIGINS` and re-run `deploy/deploy-backend.sh`.
+Deploy, then add the Vercel URL to the backend's `ALLOWED_ORIGINS` and re-run `hosting/deploy-backend.sh`.
