@@ -137,8 +137,8 @@ router.post('/manual-booking', adminProtect, checkPermission(PERMISSIONS.RIDES_M
       pickupStation: pickupLocationDoc._id,
       pickupLocation: {
         boothName: pickupLocationDoc.name,
-        latitude: pickupLocationDoc.location?.coordinates?.[1] || 0,
-        longitude: pickupLocationDoc.location?.coordinates?.[0] || 0
+        latitude: pickupLocationDoc.lat || 0,
+        longitude: pickupLocationDoc.lng || 0
       },
       dropLocation: {
         address: dropLocation,
@@ -1268,8 +1268,8 @@ router.post('/submit-to-fleet-manager', adminProtect, checkPermission(PERMISSION
       pickupStation: pickupLocationDoc._id,
       pickupLocation: {
         boothName: pickupLocationDoc.name,
-        latitude: pickupLocationDoc.location?.coordinates?.[1] || 0,
-        longitude: pickupLocationDoc.location?.coordinates?.[0] || 0
+        latitude: pickupLocationDoc.lat || 0,
+        longitude: pickupLocationDoc.lng || 0
       },
       dropLocation: {
         address: dropLocation,

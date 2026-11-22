@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
-const { dualUploadFields, dualStorageManager } = require('../config/dualStorage');
+const { dualUploadFields, processDualUploads } = require('../config/dualStorage');
 const { protect } = require('../middleware/auth');
 const { normalizeDriverData, normalizeQueryParams } = require('../middleware/normalizeDriverData');
 const {
@@ -206,34 +206,7 @@ router.post('/check-duplicates', duplicateCheckLimiter, async (req, res) => {
   }
 });
 
-router.post('/register', normalizeDriverData, driverDocumentUpload, async (req, res, next) => {
-  try {
-    console.log('[Middleware] Processing file uploads with dual storage');
-    console.log('[Middleware] req.files:', req.files ? Object.keys(req.files) : 'No files');
-    
-    // Process file uploads with dual storage
-    if (req.files) {
-      console.log('[Middleware] Processing uploads with dual storage manager');
-      const { results, errors } = await dualStorageManager.processUploads(req.files, req);
-      req.uploadResults = results;
-      req.uploadErrors = errors;
-      console.log('[Middleware] Upload processing complete. Results:', Object.keys(results || {}));
-      console.log('[Middleware] Upload errors:', errors);
-    } else {
-      console.log('[Middleware] No files found in request');
-      req.uploadResults = {};
-      req.uploadErrors = [];
-    }
-    next();
-  } catch (error) {
-    console.error('❌ File upload processing error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'File upload failed',
-      error: error.message
-    });
-  }
-}, registerDriver);
+router.post('/register', normalizeDriverData, driverDocumentUpload, processDualUploads, registerDriver);
 router.post('/login', loginDriver);
 
 // Protected routes

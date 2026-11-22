@@ -13,6 +13,7 @@ const Admin = require('./models/Admin');
 const { createContextLogger } = require('./config/logger');
 const requestLogger = require('./middleware/requestLogger');
 const { seedMetroStations } = require('./utils/seedMetroStations');
+const { ensureFixedPickupLocation } = require('./seeders/fixedPickupLocation');
 
 const logger = createContextLogger('Server');
 
@@ -28,6 +29,10 @@ if (!fs.existsSync(uploadsDir)) {
 
 // Initialize express app
 const app = express();
+
+// Cloud Run (and Render) put one proxy in front of the app. Trusting it makes req.protocol "https"
+// and req.ip the real visitor, which the stored file URLs and the rate limiter rely on.
+app.set('trust proxy', 1);
 
 // Middleware
 app.use(cors({
@@ -108,6 +113,12 @@ async function startDatabase() {
     } else {
       logger.info(`Metro stations already exist (${stationCount} stations)`);
     }
+  });
+
+  // The admin booking page, drivers going online and the user app look the fixed pickup point up in the database
+  await runTask('pickup location', async () => {
+    const created = await ensureFixedPickupLocation();
+    logger.info(created ? 'Created the fixed pickup location' : 'Fixed pickup location already exists');
   });
 
   // Setup periodic database monitoring

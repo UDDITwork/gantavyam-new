@@ -11,6 +11,11 @@ cloudinary.config({
   secure: true // Use HTTPS
 });
 
+// True when all three Cloudinary settings are present. Without them every Cloudinary call fails with
+// "Must supply api_key", so the app stores files in its own uploads folder instead.
+const isCloudinaryConfigured = () =>
+  Boolean(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
+
 // Create storage for driver documents
 const driverDocumentStorage = new CloudinaryStorage({
   cloudinary: cloudinary,
@@ -106,6 +111,7 @@ const deleteFromCloudinary = async (publicId) => {
 
 module.exports = {
   cloudinary,
+  isCloudinaryConfigured,
   uploadDriverDocuments,
   uploadProfileImage,
   deleteFromCloudinary,

@@ -3,7 +3,9 @@ const express = require('express');
 const router = express.Router();
 const { registerUser, userLogin } = require('../controllers/userController');
 const protectUser = require('../middleware/userAuth'); // Import user-specific auth
-const { uploadProfileImage } = require('../config/cloudinary');
+const path = require('path');
+const { uploadProfileImage, isCloudinaryConfigured } = require('../config/cloudinary');
+const { localUploadProfileImage, getLocalFileUrl, deleteLocalFile, uploadsDir } = require('../config/localStorage');
 const User = require('../models/User');
 const MetroStation = require('../models/MetroStation');
 const PickupLocation = require('../models/PickupLocation');
@@ -16,8 +18,14 @@ const { getIO } = require('../socket');
 router.post('/register', registerUser);
 router.post('/login', userLogin);
 
+// Profile photos go to Cloudinary when it is configured, otherwise to the server's uploads folder
+const profileImageUpload = (req, res, next) => {
+  const uploader = isCloudinaryConfigured() ? uploadProfileImage : localUploadProfileImage;
+  uploader.single('profileImage')(req, res, next);
+};
+
 // Upload profile image
-router.post('/profile-image', protectUser, uploadProfileImage.single('profileImage'), async (req, res) => {
+router.post('/profile-image', protectUser, profileImageUpload, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -50,23 +58,31 @@ router.post('/profile-image', protectUser, uploadProfileImage.single('profileIma
       }
     }
 
-    // Get Cloudinary URL
-    const cloudinaryUrl = req.file.path || req.file.secure_url;
+    // URL of the stored image: Cloudinary's, or this server's /uploads/profile-images/ one
+    const previousImage = user.profileImage;
+    const imageUrl = isCloudinaryConfigured()
+      ? (req.file.path || req.file.secure_url)
+      : getLocalFileUrl(req, req.file.filename, 'profile-images');
 
     // Update user profile with new image URL
-    user.profileImage = cloudinaryUrl;
+    user.profileImage = imageUrl;
     await user.save();
 
+    // Remove the previous photo from the uploads folder (path.basename keeps it inside profile-images)
+    if (previousImage && previousImage !== imageUrl && previousImage.includes('/uploads/profile-images/')) {
+      await deleteLocalFile(path.join(uploadsDir, 'profile-images', path.basename(previousImage)));
+    }
+
     console.log('Profile image updated successfully:', {
-      cloudinaryUrl,
+      imageUrl,
       publicId: req.file.public_id
     });
 
     res.json({
       success: true,
       message: 'Profile image uploaded successfully',
-      profileImage: cloudinaryUrl,
-      imageUrl: cloudinaryUrl
+      profileImage: imageUrl,
+      imageUrl
     });
   } catch (error) {
     console.error('Error uploading profile image:', error);

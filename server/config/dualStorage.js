@@ -90,8 +90,8 @@ class DualStorageManager {
     let retryCount = 0;
 
     while (retryCount < maxRetries) {
-      // Try Cloudinary first if enabled and not too many failures
-      if (this.useCloudinary && this.cloudinaryFailures < this.maxFailures) {
+      // Try Cloudinary first if it is configured, enabled and not too many failures
+      if (this.useCloudinary && cloudinaryConfig.isCloudinaryConfigured() && this.cloudinaryFailures < this.maxFailures) {
         try {
           const cloudinaryResult = await this.uploadToCloudinaryWithRetry(file, fieldName, 2);
           this.cloudinaryFailures = 0; // Reset failure count on success
@@ -255,7 +255,7 @@ class DualStorageManager {
   // Get storage status
   getStatus() {
     return {
-      cloudinaryEnabled: this.useCloudinary,
+      cloudinaryEnabled: this.useCloudinary && cloudinaryConfig.isCloudinaryConfigured(),
       cloudinaryFailures: this.cloudinaryFailures,
       maxFailures: this.maxFailures
     };
@@ -306,8 +306,33 @@ const dualUploadFields = dualUploadDriverDocuments.fields([
   { name: 'insurancePolicyPhoto', maxCount: 1 }
 ]);
 
+// Express middleware that goes right after dualUploadFields: stores the files multer kept in memory
+// (Cloudinary when it is configured, otherwise the uploads folder) and leaves the resulting URLs in
+// req.uploadResults and the failures in req.uploadErrors, which registerDriver reads.
+const processDualUploads = async (req, res, next) => {
+  try {
+    if (req.files) {
+      const { results, errors } = await dualStorageManager.processUploads(req.files, req);
+      req.uploadResults = results;
+      req.uploadErrors = errors;
+    } else {
+      req.uploadResults = {};
+      req.uploadErrors = [];
+    }
+    next();
+  } catch (error) {
+    console.error('❌ File upload processing error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'File upload failed',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   dualStorageManager,
   dualUploadDriverDocuments,
-  dualUploadFields
+  dualUploadFields,
+  processDualUploads
 };

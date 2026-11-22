@@ -39,7 +39,11 @@ The script also gives the project's default build identity Google's "Cloud Run B
 
 Settings the backend reads (see `server/.env.example`): `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `JWT_SECRET`,
 `DEFAULT_ADMIN_EMAIL`, `DEFAULT_ADMIN_PASSWORD`, `ALLOWED_ORIGINS`, and optionally `CLOUDINARY_*`, `TWILIO_*`,
-`FAST2SMS_API_KEY`. Without Cloudinary, uploaded files fall back to the container's disk, which is lost on restart.
+`FAST2SMS_API_KEY`. Without Cloudinary, uploaded files go to the `uploads/` folder (see "Uploaded files" below).
+
+On every start the backend makes sure the default admin, the metro stations and the fixed pickup location
+"Hauz Khas Metro Gate No 1" exist in the database. The admin booking page, drivers going online and the user app
+look that pickup point up by name, so a new database must contain it (an existing one is left as it is).
 
 ## 3. Frontend on Vercel
 
@@ -55,7 +59,8 @@ Deploy, then add the Vercel URL to the backend's `ALLOWED_ORIGINS` and re-run `h
 
 ## Uploaded files (driver documents, profile photos)
 
-The backend saves uploads to its `uploads/` folder. On Cloud Run that folder is a private Google Cloud Storage
+The backend saves uploads (driver documents from the signup form and the admin "Add driver" screen, and user profile
+photos) to its `uploads/` folder. On Cloud Run that folder is a private Google Cloud Storage
 bucket (`gantavyam-uploads-<project-number>`, created and mounted by `hosting/deploy-backend.sh`), so files survive
 restarts and redeploys. The database only stores each file's URL. If you configure Cloudinary instead
 (`CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`), uploads go there first and the bucket is the fallback.

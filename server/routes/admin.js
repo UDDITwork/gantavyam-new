@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const { adminProtect } = require('../middleware/auth');
 const { checkPermission, PERMISSIONS } = require('../middleware/permissions');
-const { uploadDriverDocuments } = require('../config/cloudinary');
+const { dualUploadFields, processDualUploads } = require('../config/dualStorage');
 const { registerDriver } = require('../controllers/driverController');
 const { 
   getAllDrivers, 
@@ -28,22 +28,11 @@ const financialRoutes = require('./admin/financialRoutes');
 const twilioSmsService = require('../services/twilioSmsService');
 const RideRequest = require('../models/RideRequest');
 
-// Configure multer for multiple files
-const driverDocumentUpload = uploadDriverDocuments.fields([
-  { name: 'aadhaarPhotoFront', maxCount: 1 },
-  { name: 'aadhaarPhotoBack', maxCount: 1 },
-  { name: 'driverSelfie', maxCount: 1 },
-  { name: 'drivingLicensePhoto', maxCount: 1 },
-  { name: 'registrationCertificatePhoto', maxCount: 1 },
-  { name: 'permitPhoto', maxCount: 1 },
-  { name: 'fitnessCertificatePhoto', maxCount: 1 },
-  { name: 'insurancePolicyPhoto', maxCount: 1 }
-]);
-
 // Admin routes for driver management
 router.get('/drivers', adminProtect, checkPermission(PERMISSIONS.DRIVERS_VIEW), getAllDrivers);
 router.get('/drivers/:id', adminProtect, checkPermission(PERMISSIONS.DRIVERS_VIEW), getDriverById);
-router.post('/drivers', adminProtect, checkPermission(PERMISSIONS.DRIVERS_CREATE), driverDocumentUpload, registerDriver);
+// The documents are stored by dualStorage: Cloudinary when it is configured, otherwise the uploads folder
+router.post('/drivers', adminProtect, checkPermission(PERMISSIONS.DRIVERS_CREATE), dualUploadFields, processDualUploads, registerDriver);
 
 // Admin routes for user management
 router.get('/users', adminProtect, checkPermission(PERMISSIONS.USERS_VIEW), getAllUsers);

@@ -1958,8 +1958,11 @@ const ManualBooking = () => {
       console.error('❌ [Manual Booking] Error submitting to Fleet Manager:', error);
       setFmStatus('none');
 
+      // The API client (services/api.js) rejects with { error, status }, where error is the server's message
       let errorMessage = 'Failed to submit booking';
-      if (error.response?.data?.message) {
+      if (error.error) {
+        errorMessage = error.error;
+      } else if (error.response?.data?.message) {
         errorMessage = error.response.data.message;
       } else if (error.message) {
         errorMessage = error.message;
