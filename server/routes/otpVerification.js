@@ -6,6 +6,7 @@ const RideRequest = require('../models/RideRequest');
 const Driver = require('../models/Driver');
 const { auth } = require('../middleware/auth');
 const { acquireLock, releaseLock } = require('../utils/lockManager');
+const { toAdmins } = require('../utils/adminRealtime');
 
 // Get socket.io instance (for emitting events after API calls)
 let io = null;
@@ -120,7 +121,7 @@ router.post('/verify-start', auth, async (req, res) => {
 
       io.to(`driver_${rideRequest.driverId}`).emit('rideStarted', eventData);
       io.to(`user_${rideRequest.userId}`).emit('rideStarted', eventData);
-      io.to('admins').emit('rideStarted', {
+      toAdmins(io, 'admins', rideRequest.pickupLocation?.boothName).emit('rideStarted', {
         ...eventData,
         driverName: rideRequest.driverName,
         userName: rideRequest.userName
@@ -281,7 +282,7 @@ router.post('/verify-end', auth, async (req, res) => {
 
       io.to(`driver_${rideRequest.driverId}`).emit('rideEnded', eventData);
       io.to(`user_${rideRequest.userId}`).emit('rideEnded', eventData);
-      io.to('admins').emit('rideEnded', {
+      toAdmins(io, 'admins', rideRequest.pickupLocation?.boothName).emit('rideEnded', {
         ...eventData,
         driverName: rideRequest.driverName,
         userName: rideRequest.userName

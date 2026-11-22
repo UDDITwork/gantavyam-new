@@ -1,14 +1,27 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GoogleMap, Autocomplete, Marker, DirectionsRenderer } from '@react-google-maps/api';
-import { FaMapMarkerAlt, FaCar, FaMotorcycle, FaTaxi, FaUser, FaRupeeSign, FaCheckCircle, FaSpinner, FaUserPlus, FaSearch, FaArrowLeft, FaArrowRight, FaUsers, FaClock, FaPhone, FaTimes, FaPaperPlane, FaExclamationTriangle, FaClipboardList } from 'react-icons/fa';
+import { FaMapMarkerAlt, FaCar, FaMotorcycle, FaTaxi, FaUser, FaRupeeSign, FaCheckCircle, FaSpinner, FaUserPlus, FaSearch, FaArrowLeft, FaArrowRight, FaUsers, FaClock, FaPhone, FaTimes, FaPaperPlane, FaExclamationTriangle, FaClipboardList, FaLock } from 'react-icons/fa';
 import { admin, users } from '../../services/api';
-import { FIXED_PICKUP_LOCATION } from '../../config/fixedLocations';
+import { getPickupLocationForPod } from '../../config/fixedLocations';
+import { PICKUP_PODS, getPodByKey } from '../../config/pickupPods';
+import { useAdmin } from '../../contexts/AdminContext';
 import { initializeSocket, getSocket } from '../../services/socket';
 import { getImageUrl } from '../../utils/imageUtils';
 import toast, { Toaster } from 'react-hot-toast';
 
 const STORAGE_KEY = 'manualBookingState';
+// The pickup point an admin picked last (kept for the browser session only)
+const POD_STORAGE_KEY = 'manualBookingPickupPod';
+const DEFAULT_POD_KEY = 'HK';
+
+const readRememberedPodKey = () => {
+  try {
+    return getPodByKey(sessionStorage.getItem(POD_STORAGE_KEY))?.key || DEFAULT_POD_KEY;
+  } catch (error) {
+    return DEFAULT_POD_KEY;
+  }
+};
 
 const ManualBooking = () => {
   const navigate = useNavigate();
@@ -47,9 +60,7 @@ const ManualBooking = () => {
   // Queue Management state (matching QueueManagement.js for full functionality)
   const [activeDriverTab, setActiveDriverTab] = useState('queue'); // 'queue' | 'requests'
   const [pendingRequests, setPendingRequests] = useState([]);
-  const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
   const [pendingOfflineRequests, setPendingOfflineRequests] = useState([]);
-  const [pendingOfflineRequestsCount, setPendingOfflineRequestsCount] = useState(0);
   const [processingRequestId, setProcessingRequestId] = useState(null);
   const [queueSuccess, setQueueSuccess] = useState('');
   const [queueError, setQueueError] = useState('');
@@ -85,8 +96,40 @@ const ManualBooking = () => {
   const [requestTimer, setRequestTimer] = useState(15);
   const timerRef = useRef(null);
 
-  // Fixed pickup location (same as online booking)
-  const currentBooth = FIXED_PICKUP_LOCATION;
+  // Pickup point ("pod"): an admin chooses one of the pickup points, an executive is fixed to their own pod (no selector).
+  // isExecutive / assignedPod come from the admin context; when they are missing the user is treated as an admin
+  // (an executive role or pod saved with the login is still honoured).
+  const adminContext = useAdmin();
+  const contextAdmin = adminContext?.admin;
+  const isExecutive = typeof adminContext?.isExecutive === 'function'
+    ? !!adminContext.isExecutive()
+    : adminContext?.isExecutive !== undefined
+      ? !!adminContext.isExecutive
+      : contextAdmin?.role === 'executive-manager';
+  const assignedPodValue = adminContext?.assignedPod || contextAdmin?.pod || contextAdmin?.assignedPickupLocation;
+  const executivePod = isExecutive
+    ? getPodByKey(typeof assignedPodValue === 'string' ? assignedPodValue : assignedPodValue?.key)
+    : null;
+  const [adminPodKey, setAdminPodKey] = useState(readRememberedPodKey);
+  const selectedPodKey = isExecutive ? (executivePod?.key || DEFAULT_POD_KEY) : adminPodKey;
+  // Same shape as the old fixed pickup location ({ id, name, lat, lng, line, ... }), so every use below keeps working
+  const currentBooth = getPickupLocationForPod(selectedPodKey);
+
+  // Always the latest pickup point, for callbacks that outlive a render (socket handlers, requests still running)
+  const selectedPodKeyRef = useRef(selectedPodKey);
+  selectedPodKeyRef.current = selectedPodKey;
+  // Counts the fare calculations: the answer of an older one (for a previous pickup or drop location) is ignored
+  const fareRequestRef = useRef(0);
+
+  // A booking request that is being created or is waiting for a driver / the fleet manager: the pickup must not change under it
+  const requestInFlight = loading || waitingForDriverResponse || submittedToFm || fmStatus === 'submitting' ||
+    requestStatus === 'sending' || requestStatus === 'waiting' || requestStatus === 'accepted';
+  // The pickup is changed in the first step only, before a route and fares have been worked out for it
+  const pickupLockReason = requestInFlight
+    ? 'Locked while a booking request is active'
+    : currentStep > 1
+      ? 'Go back to the first step to change the pickup location'
+      : '';
 
   // Helper function to get vehicle options with icons
   const getVehicleOptions = () => {
@@ -149,6 +192,7 @@ const ManualBooking = () => {
     
     const state = {
       currentStep,
+      pickupPodKey: selectedPodKey, // the fares below were worked out for this pickup point
       dropLocation,
       dropCoordinates,
       fareEstimates,
@@ -517,20 +561,13 @@ const ManualBooking = () => {
       console.log('📬 [ManualBooking] New online request:', data);
       setPendingRequests(prev => {
         if (prev.find(r => r._id === data.request?._id)) return prev;
-        setPendingRequestsCount(count => count + 1);
         return [data.request, ...prev];
       });
     };
 
     const handleOnlineRequestProcessed = (data) => {
       console.log('✅ [ManualBooking] Online request processed:', data);
-      setPendingRequests(prev => {
-        const filtered = prev.filter(r => r._id !== data.requestId);
-        if (filtered.length < prev.length) {
-          setPendingRequestsCount(count => Math.max(0, count - 1));
-        }
-        return filtered;
-      });
+      setPendingRequests(prev => prev.filter(r => r._id !== data.requestId));
       if (data.status === 'approved' && selectedVehicle?.type) {
         fetchAvailableDrivers(selectedVehicle.type);
       }
@@ -538,26 +575,14 @@ const ManualBooking = () => {
 
     const handleOnlineRequestCancelled = (data) => {
       console.log('❌ [ManualBooking] Online request cancelled:', data);
-      setPendingRequests(prev => {
-        const filtered = prev.filter(r => r._id !== data.requestId);
-        if (filtered.length < prev.length) {
-          setPendingRequestsCount(count => Math.max(0, count - 1));
-        }
-        return filtered;
-      });
+      setPendingRequests(prev => prev.filter(r => r._id !== data.requestId));
     };
 
     const handleApproveOnlineRequestResult = (data) => {
       console.log('✅ [ManualBooking] Approve request result:', data);
       if (data.success && data.request?._id) {
         setQueueSuccess(`${data.request?.driverName || 'Driver'} has been approved`);
-        setPendingRequests(prev => {
-          const filtered = prev.filter(r => r._id !== data.request._id);
-          if (filtered.length < prev.length) {
-            setPendingRequestsCount(count => Math.max(0, count - 1));
-          }
-          return filtered;
-        });
+        setPendingRequests(prev => prev.filter(r => r._id !== data.request._id));
         if (selectedVehicle?.type) fetchAvailableDrivers(selectedVehicle.type);
       } else if (!data.success) {
         setQueueError(data.error || 'Failed to approve request');
@@ -570,13 +595,7 @@ const ManualBooking = () => {
       console.log('❌ [ManualBooking] Reject request result:', data);
       if (data.success && data.request?._id) {
         setQueueSuccess('Request has been rejected');
-        setPendingRequests(prev => {
-          const filtered = prev.filter(r => r._id !== data.request._id);
-          if (filtered.length < prev.length) {
-            setPendingRequestsCount(count => Math.max(0, count - 1));
-          }
-          return filtered;
-        });
+        setPendingRequests(prev => prev.filter(r => r._id !== data.request._id));
       } else if (!data.success) {
         setQueueError(data.error || 'Failed to reject request');
       }
@@ -589,20 +608,13 @@ const ManualBooking = () => {
       console.log('📬 [ManualBooking] New offline request:', data);
       setPendingOfflineRequests(prev => {
         if (prev.find(r => r._id === data.request?._id)) return prev;
-        setPendingOfflineRequestsCount(count => count + 1);
         return [data.request, ...prev];
       });
     };
 
     const handleOfflineRequestProcessed = (data) => {
       console.log('✅ [ManualBooking] Offline request processed:', data);
-      setPendingOfflineRequests(prev => {
-        const filtered = prev.filter(r => r._id !== data.requestId);
-        if (filtered.length < prev.length) {
-          setPendingOfflineRequestsCount(count => Math.max(0, count - 1));
-        }
-        return filtered;
-      });
+      setPendingOfflineRequests(prev => prev.filter(r => r._id !== data.requestId));
       if (data.status === 'approved' && selectedVehicle?.type) {
         fetchAvailableDrivers(selectedVehicle.type);
       }
@@ -612,13 +624,7 @@ const ManualBooking = () => {
       console.log('✅ [ManualBooking] Approve offline request result:', data);
       if (data.success && data.request?._id) {
         setQueueSuccess(`${data.request?.driverName || 'Driver'} is now offline`);
-        setPendingOfflineRequests(prev => {
-          const filtered = prev.filter(r => r._id !== data.request._id);
-          if (filtered.length < prev.length) {
-            setPendingOfflineRequestsCount(count => Math.max(0, count - 1));
-          }
-          return filtered;
-        });
+        setPendingOfflineRequests(prev => prev.filter(r => r._id !== data.request._id));
         if (selectedVehicle?.type) fetchAvailableDrivers(selectedVehicle.type);
       } else if (!data.success) {
         setQueueError(data.error || 'Failed to approve offline request');
@@ -631,13 +637,7 @@ const ManualBooking = () => {
       console.log('❌ [ManualBooking] Reject offline request result:', data);
       if (data.success && data.request?._id) {
         setQueueSuccess('Offline request has been rejected');
-        setPendingOfflineRequests(prev => {
-          const filtered = prev.filter(r => r._id !== data.request._id);
-          if (filtered.length < prev.length) {
-            setPendingOfflineRequestsCount(count => Math.max(0, count - 1));
-          }
-          return filtered;
-        });
+        setPendingOfflineRequests(prev => prev.filter(r => r._id !== data.request._id));
       } else if (!data.success) {
         setQueueError(data.error || 'Failed to reject offline request');
       }
@@ -837,7 +837,7 @@ const ManualBooking = () => {
     if (currentStep > 1 || dropLocation || userPhone) {
       saveBookingState();
     }
-  }, [currentStep, dropLocation, dropCoordinates, fareEstimates, selectedVehicle, userPhone, userName, userEmail, existingUser, showRegistrationForm]);
+  }, [currentStep, selectedPodKey, dropLocation, dropCoordinates, fareEstimates, selectedVehicle, userPhone, userName, userEmail, existingUser, showRegistrationForm]);
 
   // Auto-refresh driver list every 30 seconds (matching QueueManagement)
   useEffect(() => {
@@ -857,7 +857,7 @@ const ManualBooking = () => {
 
       return () => clearInterval(refreshInterval);
     }
-  }, [currentStep, selectedVehicle?.type]);
+  }, [currentStep, selectedVehicle?.type, selectedPodKey]);
 
   // Fetch pending online requests (matching QueueManagement)
   const fetchPendingRequests = async () => {
@@ -872,9 +872,7 @@ const ManualBooking = () => {
       const data = await response.json();
 
       if (data.success) {
-        const requests = data.requests || [];
-        setPendingRequests(requests);
-        setPendingRequestsCount(requests.length);
+        setPendingRequests(data.requests || []);
       }
     } catch (err) {
       console.error('[ManualBooking] Error fetching pending requests:', err);
@@ -894,9 +892,7 @@ const ManualBooking = () => {
       const data = await response.json();
 
       if (data.success) {
-        const requests = data.requests || [];
-        setPendingOfflineRequests(requests);
-        setPendingOfflineRequestsCount(requests.length);
+        setPendingOfflineRequests(data.requests || []);
       }
     } catch (err) {
       console.error('[ManualBooking] Error fetching pending offline requests:', err);
@@ -1006,6 +1002,11 @@ const ManualBooking = () => {
   const calculateFareEstimates = async () => {
     if (!dropCoordinates) return;
 
+    // The route and fare always start at the selected pickup point. The answer of an older calculation (another drop
+    // location, or the pickup point was changed meanwhile) is dropped, so it can never replace the current one.
+    const requestId = ++fareRequestRef.current;
+    const isObsolete = () => requestId !== fareRequestRef.current;
+
     setIsCalculatingFare(true);
     setIsCalculatingRoute(true);
     setRouteError(null);
@@ -1029,6 +1030,10 @@ const ManualBooking = () => {
           drivingOptions: { departureTime: new Date(), trafficModel: 'bestguess' },
         },
         (result, status) => {
+          if (isObsolete()) {
+            resolve();
+            return;
+          }
           setIsCalculatingRoute(false);
           if (status === 'OK' && result) {
             setDirections(result);
@@ -1044,6 +1049,8 @@ const ManualBooking = () => {
       );
     });
 
+    if (isObsolete()) return;
+
     // Step 2: Call fare estimate API — pass road distance if available
     try {
       const fareData = {
@@ -1058,6 +1065,8 @@ const ManualBooking = () => {
       console.log('Calculating fare with data:', fareData);
       const response = await admin.getFareEstimate(fareData);
 
+      if (isObsolete()) return;
+
       if (response.success) {
         setFareEstimates(response);
         console.log('Fare estimates received:', response);
@@ -1066,19 +1075,57 @@ const ManualBooking = () => {
         alert('Could not calculate fare. Please check the location and try again.');
       }
     } catch (error) {
+      if (isObsolete()) return;
       console.error('Error calculating fare:', error);
       alert('Failed to calculate fare. Please try again.');
     } finally {
-      setIsCalculatingFare(false);
+      if (!isObsolete()) setIsCalculatingFare(false);
     }
   };
 
-  // Calculate fare only when location is confirmed
+  // Calculate fare only when location is confirmed (and again for the new pickup point when it changes)
   useEffect(() => {
     if (dropCoordinates && dropLocationConfirmed) {
       calculateFareEstimates();
     }
-  }, [dropCoordinates, dropLocationConfirmed]);
+  }, [dropCoordinates, dropLocationConfirmed, selectedPodKey]);
+
+  // Admin chose another pickup point: everything worked out for the old one is dropped and, once the drop location is
+  // confirmed, the route and fares are calculated again from the new pickup point (see the effect above).
+  const handlePodChange = (podKey) => {
+    const pod = getPodByKey(podKey);
+    if (!pod || isExecutive || pickupLockReason || pod.key === selectedPodKey) return;
+
+    setAdminPodKey(pod.key);
+    try {
+      sessionStorage.setItem(POD_STORAGE_KEY, pod.key);
+    } catch (error) {
+      // Storage not available: the choice is just not remembered
+    }
+
+    const willRecalculate = !!dropCoordinates && dropLocationConfirmed;
+    fareRequestRef.current += 1; // a calculation still running for the old pickup point is dropped
+    setIsCalculatingFare(willRecalculate);
+    setIsCalculatingRoute(willRecalculate);
+    setFareEstimates(null);
+    setDirections(null);
+    setRouteError(null);
+    setSelectedVehicle(null);
+    setSelectedDriver(null);
+    setAvailableDrivers([]);
+    setDriverError('');
+    setShowDisconnectedWarning(false);
+    setDisconnectedDriverForWarning(null);
+    resetRequestState(); // no request is running here (the selector is locked then); this clears a finished one
+
+    // Show both ends of the new route on the map
+    if (mapInstance && dropCoordinates && window.google?.maps?.LatLngBounds) {
+      const bounds = new window.google.maps.LatLngBounds();
+      bounds.extend({ lat: pod.lat, lng: pod.lng });
+      bounds.extend(dropCoordinates);
+      mapInstance.fitBounds(bounds, { top: 50, right: 50, bottom: 50, left: 50 });
+    }
+  };
 
   // Google Maps is already loaded by App.js LoadScript
   // Check if it's available and set state accordingly
@@ -1685,6 +1732,20 @@ const ManualBooking = () => {
   const restoreBookingState = () => {
     const savedState = loadBookingState();
     if (savedState) {
+      // The saved route and fares were worked out for one pickup point (bookings saved before there were several were Hauz Khas)
+      const savedPodKey = getPodByKey(savedState.pickupPodKey)?.key || DEFAULT_POD_KEY;
+      if (isExecutive) {
+        if (savedPodKey !== selectedPodKey) {
+          // An executive cannot continue a booking that was started for another pickup point
+          clearBookingState();
+          setShowRecoveryModal(false);
+          toast.error('The saved booking was for another pickup point, so it was discarded');
+          return;
+        }
+      } else {
+        setAdminPodKey(savedPodKey);
+      }
+
       setCurrentStep(savedState.currentStep);
       setDropLocation(savedState.dropLocation);
       setDropCoordinates(savedState.dropCoordinates);
@@ -2417,6 +2478,65 @@ const ManualBooking = () => {
               <span>Confirm</span>
             </div>
           </div>
+
+          {/* Pickup Location: an admin chooses the pickup point, an executive is fixed to their own (read-only badge) */}
+          <div className="px-6 py-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              <FaMapMarkerAlt className="inline mr-2" />
+              Pickup Location
+            </label>
+
+            {isExecutive ? (
+              <div
+                className={`inline-flex items-center px-4 py-2 rounded-lg border text-sm font-medium ${
+                  executivePod
+                    ? 'bg-blue-50 border-blue-200 text-blue-800'
+                    : 'bg-red-50 border-red-200 text-red-700'
+                }`}
+                title="Your pickup point is fixed"
+              >
+                <FaLock className="mr-2 text-xs" />
+                {executivePod ? executivePod.displayName : 'No pickup point is assigned to your account'}
+              </div>
+            ) : (
+              <div role="radiogroup" aria-label="Pickup Location" className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {PICKUP_PODS.map((pod) => {
+                  const isSelected = pod.key === selectedPodKey;
+                  return (
+                    <button
+                      key={pod.key}
+                      type="button"
+                      role="radio"
+                      aria-checked={isSelected}
+                      onClick={() => handlePodChange(pod.key)}
+                      disabled={!!pickupLockReason}
+                      title={pickupLockReason || pod.address}
+                      className={`flex items-center justify-between px-4 py-3 rounded-lg border-2 text-left transition-all ${
+                        isSelected
+                          ? 'border-blue-500 bg-blue-50 shadow-md'
+                          : pickupLockReason
+                            ? 'border-gray-300 bg-white'
+                            : 'border-gray-300 bg-white hover:border-blue-300'
+                      } ${pickupLockReason ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    >
+                      <span>
+                        <span className="block font-medium text-gray-800">{pod.displayName}</span>
+                        <span className="block text-xs text-gray-500">{pod.subType}</span>
+                      </span>
+                      {isSelected && <FaCheckCircle className="text-blue-600 ml-3 flex-shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {!isExecutive && pickupLockReason && (
+              <p className="mt-2 text-xs text-gray-500">
+                <FaLock className="inline mr-1" />
+                {pickupLockReason}
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Main Content */}
@@ -2426,18 +2546,7 @@ const ManualBooking = () => {
             <div>
               <h2 className="text-xl font-semibold mb-6">Trip Details</h2>
 
-              {/* Pickup Location (Fixed) */}
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <FaMapMarkerAlt className="inline mr-2" />
-                  Pickup Location (Fixed)
-                </label>
-                <div className="w-full px-4 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-700">
-                  {currentBooth.name}
-                </div>
-              </div>
-
-              {/* Drop Location with Google Maps Autocomplete */}
+              {/* Drop Location with Google Maps Autocomplete (the pickup location is chosen at the top of the page) */}
               <div className="mb-6">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   <FaMapMarkerAlt className="inline mr-2" />
@@ -2564,7 +2673,7 @@ const ManualBooking = () => {
                         fullscreenControl: true
                       }}
                     >
-                      {/* Fixed Pickup Location Marker */}
+                      {/* Pickup Location Marker (the selected pickup point) */}
                       <Marker
                         position={{ lat: currentBooth.lat, lng: currentBooth.lng }}
                         title={currentBooth.name}
@@ -2624,7 +2733,7 @@ const ManualBooking = () => {
                   {/* Map Legend */}
                   <div className="mt-3 flex items-center justify-center gap-6 text-sm text-gray-600">
                     <span className="flex items-center gap-1">
-                      <span style={{ color: '#1E40AF' }}>●</span> Pickup Location (Fixed)
+                      <span style={{ color: '#1E40AF' }}>●</span> Pickup Location ({currentBooth.shortName})
                     </span>
                     <span className="flex items-center gap-1">
                       <span style={{ color: '#DC2626' }}>●</span> Drop Location (Draggable)
@@ -3277,9 +3386,9 @@ const ManualBooking = () => {
                 >
                   <FaClock className="inline mr-2" />
                   Pending Requests
-                  {(pendingRequestsCount + pendingOfflineRequestsCount) > 0 && (
+                  {(pendingRequests.length + pendingOfflineRequests.length) > 0 && (
                     <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                      {pendingRequestsCount + pendingOfflineRequestsCount}
+                      {pendingRequests.length + pendingOfflineRequests.length}
                     </span>
                   )}
                 </button>
@@ -3731,7 +3840,7 @@ const ManualBooking = () => {
                                     ⭐ {driver.rating.toFixed(1)} ({driver.totalRides || 0} rides)
                                   </div>
                                 )}
-                                {driver.currentMetroBooth && (
+                                {driver.currentMetroBooth && !isExecutive && (
                                   <div className="text-xs text-gray-500">
                                     📍 {driver.currentMetroBooth}
                                   </div>
@@ -3804,7 +3913,7 @@ const ManualBooking = () => {
                 <div className="mb-6">
                   <h3 className="font-medium mb-4 flex items-center">
                     <FaClock className="mr-2 text-blue-600" />
-                    Pending Online Requests ({pendingRequestsCount})
+                    Pending Online Requests ({pendingRequests.length})
                   </h3>
 
                   {pendingRequests.length === 0 ? (
@@ -3872,7 +3981,7 @@ const ManualBooking = () => {
                 <div>
                   <h3 className="font-medium mb-4 flex items-center">
                     <FaClock className="mr-2 text-orange-600" />
-                    Pending Offline Requests ({pendingOfflineRequestsCount})
+                    Pending Offline Requests ({pendingOfflineRequests.length})
                   </h3>
 
                   {pendingOfflineRequests.length === 0 ? (

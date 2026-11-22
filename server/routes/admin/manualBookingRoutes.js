@@ -13,9 +13,23 @@ const { getIO, sendRideRequestToDriver } = require('../../socket');
 const { v4: uuidv4 } = require('uuid');
 const { logRideEvent, logDriverAction, logStatusTransition, logSocketDelivery, logError } = require('../../utils/rideLogger');
 const { calculateFare } = require('../../utils/fareCalculator');
+const { isExecutive, podOf, canAccessDoc, boothCondition, forbidden } = require('../../utils/podScope');
+const { toAdmins } = require('../../utils/adminRealtime');
+
+// Executives book only at their own pickup point, whatever the request says
+const pinPickupToPod = (req, res, next) => {
+  if (isExecutive(req.admin)) {
+    const pod = podOf(req.admin);
+    if (!pod) return forbidden(res, 'Your account is not linked to a pickup point yet.');
+    req.body = req.body || {};
+    req.body.pickupStation = pod.name;
+    req.body.pickupLocation = pod.name;
+  }
+  next();
+};
 
 // Manual booking endpoint (requires manual booking permission)
-router.post('/manual-booking', adminProtect, checkPermission(PERMISSIONS.RIDES_MANUAL_BOOKING), async (req, res) => {
+router.post('/manual-booking', adminProtect, checkPermission(PERMISSIONS.RIDES_MANUAL_BOOKING), pinPickupToPod, async (req, res) => {
   try {
     const {
       pickupStation,
@@ -512,7 +526,7 @@ router.post('/manual-booking', adminProtect, checkPermission(PERMISSIONS.RIDES_M
     const io = getIO();
     if (io) {
       // Notify admins about the manual booking creation
-      io.to('admin-room').emit('manualBookingCreated', {
+      toAdmins(io, 'admin-room', rideRequest.pickupLocation?.boothName || pickupStation).emit('manualBookingCreated', {
         rideId: rideRequest._id,
         bookingId: rideRequest.bookingId,
         status: rideRequest.status,
@@ -790,6 +804,8 @@ router.get('/manual-booking/:id', adminProtect, async (req, res) => {
       });
     }
 
+    if (!canAccessDoc(req.admin, booking)) return forbidden(res);
+
     res.json({
       success: true,
       booking
@@ -819,6 +835,8 @@ router.post('/resend-otp/:rideId', adminProtect, async (req, res) => {
         message: 'Ride not found'
       });
     }
+
+    if (!canAccessDoc(req.admin, ride)) return forbidden(res);
 
     // Check if ride has OTPs
     if (!ride.startOTP || !ride.endOTP) {
@@ -1027,6 +1045,8 @@ router.post('/cancel-pending/:rideId', adminProtect, checkPermission(PERMISSIONS
       });
     }
 
+    if (!canAccessDoc(req.admin, rideRequest)) return forbidden(res);
+
     // Only allow cancelling pending manual bookings
     if (rideRequest.status !== 'pending') {
       return res.status(400).json({
@@ -1150,7 +1170,7 @@ router.get('/offline-requests', adminProtect, async (req, res) => {
 
 // POST /api/admin/submit-to-fleet-manager - Submit booking to Fleet Manager queue
 // This creates a booking without driver assignment - Fleet Manager will assign driver
-router.post('/submit-to-fleet-manager', adminProtect, checkPermission(PERMISSIONS.RIDES_MANUAL_BOOKING), async (req, res) => {
+router.post('/submit-to-fleet-manager', adminProtect, checkPermission(PERMISSIONS.RIDES_MANUAL_BOOKING), pinPickupToPod, async (req, res) => {
   try {
     const {
       pickupStation,
@@ -1330,7 +1350,7 @@ router.post('/submit-to-fleet-manager', adminProtect, checkPermission(PERMISSION
     const io = getIO();
     if (io) {
       // Emit to all fleet managers and admins
-      io.to('admin-room').emit('newOpenBooking', {
+      toAdmins(io, 'admin-room', rideRequest.pickupLocation?.boothName || pickupStation).emit('newOpenBooking', {
         rideId: rideRequest._id,
         bookingId: rideRequest.bookingId,
         queueNumber: rideRequest.queueNumber,
@@ -1410,7 +1430,8 @@ router.get('/fleet-manager/open-bookings', adminProtect, async (req, res) => {
     // Get all bookings with status 'pending_fm' sorted by newest first
     const openBookings = await RideRequest.find({
       status: 'pending_fm',
-      bookingSource: 'manual'
+      bookingSource: 'manual',
+      ...boothCondition(req.admin, 'pickupLocation.boothName')
     })
     .sort({ submittedToFmAt: -1 }) // Newest first
     .select({
@@ -1476,7 +1497,8 @@ router.get('/pending-fm-requests', adminProtect, async (req, res) => {
     // Get all pending FM requests from all admins (as per requirements)
     const pendingRequests = await RideRequest.find({
       status: 'pending_fm',
-      bookingSource: 'manual'
+      bookingSource: 'manual',
+      ...boothCondition(req.admin, 'pickupLocation.boothName')
     })
     .sort({ submittedToFmAt: -1 })
     .select({
@@ -1496,24 +1518,24 @@ router.get('/pending-fm-requests', adminProtect, async (req, res) => {
     res.json({
       success: true,
       count: pendingRequests.length,
-      requests: pendingRequests.map(req => ({
-        _id: req._id,
-        bookingId: req.bookingId,
-        queueNumber: req.queueNumber,
+      requests: pendingRequests.map(pending => ({
+        _id: pending._id,
+        bookingId: pending.bookingId,
+        queueNumber: pending.queueNumber,
         customer: {
-          name: req.userName,
-          phone: req.userPhone
+          name: pending.userName,
+          phone: pending.userPhone
         },
-        pickupLocation: req.pickupLocation?.boothName,
-        dropLocation: req.dropLocation?.address,
-        vehicleType: req.vehicleType,
-        estimatedFare: req.estimatedFare,
-        submittedAt: req.submittedToFmAt,
+        pickupLocation: pending.pickupLocation?.boothName,
+        dropLocation: pending.dropLocation?.address,
+        vehicleType: pending.vehicleType,
+        estimatedFare: pending.estimatedFare,
+        submittedAt: pending.submittedToFmAt,
         createdBy: {
-          id: req.adminId,
-          name: req.adminName
+          id: pending.adminId,
+          name: pending.adminName
         },
-        isOwnRequest: req.adminId?.toString() === req.admin?._id?.toString()
+        isOwnRequest: pending.adminId?.toString() === req.admin?._id?.toString()
       }))
     });
 
@@ -1547,6 +1569,8 @@ router.post('/cancel-fm-request/:rideId', adminProtect, checkPermission(PERMISSI
       });
     }
 
+    if (!canAccessDoc(req.admin, rideRequest)) return forbidden(res);
+
     // Only allow cancelling pending_fm requests
     if (rideRequest.status !== 'pending_fm') {
       return res.status(400).json({
@@ -1576,7 +1600,7 @@ router.post('/cancel-fm-request/:rideId', adminProtect, checkPermission(PERMISSI
     // Notify Fleet Managers that this booking was cancelled
     const io = getIO();
     if (io) {
-      io.to('admin-room').emit('bookingCancelledByAdmin', {
+      toAdmins(io, 'admin-room', rideRequest.pickupLocation?.boothName).emit('bookingCancelledByAdmin', {
         rideId: rideRequest._id,
         bookingId: rideRequest.bookingId,
         cancelledBy: {
@@ -1636,6 +1660,8 @@ router.post('/fleet-manager/cancel-booking/:rideId', adminProtect, async (req, r
       });
     }
 
+    if (!canAccessDoc(req.admin, rideRequest)) return forbidden(res);
+
     // Only allow cancelling pending_fm requests
     if (rideRequest.status !== 'pending_fm') {
       return res.status(400).json({
@@ -1667,7 +1693,7 @@ router.post('/fleet-manager/cancel-booking/:rideId', adminProtect, async (req, r
     const io = getIO();
     if (io) {
       // Notify admin room
-      io.to('admin-room').emit('fmCancelledRequest', {
+      toAdmins(io, 'admin-room', rideRequest.pickupLocation?.boothName).emit('fmCancelledRequest', {
         rideId: rideRequest._id,
         bookingId: rideRequest.bookingId,
         reason: reason,
@@ -1747,6 +1773,8 @@ router.post('/fleet-manager/assign-driver/:rideId', adminProtect, async (req, re
       });
     }
 
+    if (!canAccessDoc(req.admin, rideRequest)) return forbidden(res);
+
     // Only allow assigning to pending_fm requests
     if (rideRequest.status !== 'pending_fm') {
       return res.status(400).json({
@@ -1812,7 +1840,7 @@ router.post('/fleet-manager/assign-driver/:rideId', adminProtect, async (req, re
     // Notify admins about driver assignment
     const io = getIO();
     if (io) {
-      io.to('admin-room').emit('fmAssignedDriver', {
+      toAdmins(io, 'admin-room', rideRequest.pickupLocation?.boothName).emit('fmAssignedDriver', {
         rideId: rideRequest._id,
         bookingId: rideRequest.bookingId,
         driver: {
@@ -1900,6 +1928,8 @@ router.get('/fleet-manager/booking/:rideId', adminProtect, async (req, res) => {
         message: 'Booking not found'
       });
     }
+
+    if (!canAccessDoc(req.admin, booking)) return forbidden(res);
 
     res.json({
       success: true,

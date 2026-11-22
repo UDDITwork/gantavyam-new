@@ -8,6 +8,7 @@ const { protect } = require('../middleware/auth');
 const DriverOnlineRequest = require('../models/DriverOnlineRequest');
 const Driver = require('../models/Driver');
 const { getIO } = require('../socket');
+const { toAdminsAndExecutives } = require('../utils/adminRealtime');
 
 /**
  * POST /api/drivers/online-request
@@ -100,7 +101,7 @@ router.post('/online-request', protect, async (req, res) => {
     // Notify admins via socket
     try {
       const io = getIO();
-      io.to('admins').emit('newOnlineRequest', {
+      toAdminsAndExecutives(io, 'admins').emit('newOnlineRequest', {
         request: {
           _id: newRequest._id,
           driverId: newRequest.driverId,
@@ -304,7 +305,7 @@ router.delete('/online-request', protect, async (req, res) => {
     // Notify admins
     try {
       const io = getIO();
-      io.to('admins').emit('onlineRequestCancelled', {
+      toAdminsAndExecutives(io, 'admins').emit('onlineRequestCancelled', {
         requestId: pendingRequest._id,
         driverName: pendingRequest.driverName,
         boothName: pendingRequest.boothName
@@ -369,7 +370,7 @@ router.post('/go-offline', protect, async (req, res) => {
     // Notify admins
     try {
       const io = getIO();
-      io.to('admins').emit('driverWentOffline', {
+      toAdminsAndExecutives(io, 'admins').emit('driverWentOffline', {
         driverId: driver._id,
         driverName: driver.fullName
       });

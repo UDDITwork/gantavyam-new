@@ -12,7 +12,7 @@ const AdminSchema = new mongoose.Schema({
     required: [true, 'Please add an email'],
     unique: true,
     match: [
-      /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/,
+      /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,})+$/,
       'Please add a valid email'
     ]
   },
@@ -53,6 +53,12 @@ const AdminSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  // Executives ("executive-manager") belong to one pickup point (pod): 'HK' = Hauz Khas, 'PC' = Patel Chowk
+  // (see config/pickupPods.js). They only see and manage that pod. Empty for every other role.
+  assignedPickupLocation: {
+    type: String,
+    default: null
+  },
   lastLogin: Date,
   resetPasswordToken: String,
   resetPasswordExpire: Date,
@@ -62,71 +68,57 @@ const AdminSchema = new mongoose.Schema({
   }
 });
 
+// What each role may do. The server and the admin panel both follow these lists.
+const FULL_ACCESS = [
+  'drivers:view', 'drivers:create', 'drivers:edit', 'drivers:delete', 'drivers:verify',
+  'rides:view', 'rides:manage', 'rides:manual_booking',
+  'users:view', 'users:create', 'users:edit',
+  'queue:view', 'queue:manage',
+  'financial:view', 'financial:export',
+  'fare:view', 'fare:edit',
+  'settings:view', 'settings:edit',
+  'admins:manage'
+];
+
+const ROLE_PERMISSIONS = {
+  'super-admin': FULL_ACCESS,
+  // Regular admin has full access (same as super-admin)
+  admin: FULL_ACCESS,
+
+  // Executive (sub-admin of one pickup point): exactly the four operations features - Fleet Manager, Queue
+  // Management, Register Driver and Manual Booking. Nothing else: no users list, financials, fares, settings,
+  // driver edit/delete/verify or other admins. The routes additionally limit everything to the executive's own pod.
+  'executive-manager': [
+    'drivers:view',           // drivers of the own pod (Fleet Manager, Queue Management, Manual Booking)
+    'drivers:create',         // Register Driver
+    'rides:view',             // Fleet Manager
+    'rides:manage',
+    'rides:manual_booking',   // Manual Booking
+    'queue:view',             // Queue Management
+    'queue:manage'
+  ],
+
+  'fleet-manager': [
+    'rides:view',             // Access Fleet Manager tab and view rides
+    'drivers:view',           // View driver details in Fleet Manager
+    'drivers:create',         // Register/onboard new drivers
+    'queue:view'              // View queue numbers in Fleet Manager
+  ]
+};
+
+// An unknown role gets nothing
+const permissionsForRole = (role) => [...(ROLE_PERMISSIONS[role] || [])];
+
 // Auto-assign permissions based on role (before save)
 AdminSchema.pre('save', async function(next) {
   // Assign permissions based on role if role is modified or document is new
   if (this.isModified('role') || this.isNew) {
-    switch(this.role) {
-      case 'super-admin':
-        this.permissions = [
-          'drivers:view', 'drivers:create', 'drivers:edit', 'drivers:delete', 'drivers:verify',
-          'rides:view', 'rides:manage', 'rides:manual_booking',
-          'users:view', 'users:create', 'users:edit',
-          'queue:view', 'queue:manage',
-          'financial:view', 'financial:export',
-          'fare:view', 'fare:edit',
-          'settings:view', 'settings:edit',
-          'admins:manage'
-        ];
-        break;
+    this.permissions = permissionsForRole(this.role);
+  }
 
-      case 'executive-manager':
-        this.permissions = [
-          'drivers:view',           // Can view drivers only
-          'rides:view',             // Can view rides
-          'rides:manage',           // Can manage ride status
-          'rides:manual_booking',   // Can create manual bookings
-          'queue:view',             // Can view queue
-          'queue:manage'            // Can manage queue
-          // NO users:view - Cannot view users list
-          // NO financial:view - Cannot view financial dashboard/reports
-          // NO drivers:create, drivers:edit, drivers:delete, drivers:verify
-          // NO users:create, users:edit
-          // NO fare:view, fare:edit
-          // NO settings:view, settings:edit
-          // NO admins:manage
-          // NO financial:export
-        ];
-        break;
-
-      case 'fleet-manager':
-        this.permissions = [
-          'rides:view',             // Access Fleet Manager tab and view rides
-          'drivers:view',           // View driver details in Fleet Manager
-          'drivers:create',         // Register/onboard new drivers
-          'queue:view'              // View queue numbers in Fleet Manager
-          // NO rides:manage - Cannot manage ride status
-          // NO rides:manual_booking - Cannot create manual bookings
-          // NO queue:manage - Cannot manage queue
-          // NO financial:view, users:view, fare:view, settings:view, admins:manage
-        ];
-        break;
-
-      case 'admin':
-      default:
-        // Regular admin has full access (same as super-admin)
-        this.permissions = [
-          'drivers:view', 'drivers:create', 'drivers:edit', 'drivers:delete', 'drivers:verify',
-          'rides:view', 'rides:manage', 'rides:manual_booking',
-          'users:view', 'users:create', 'users:edit',
-          'queue:view', 'queue:manage',
-          'financial:view', 'financial:export',
-          'fare:view', 'fare:edit',
-          'settings:view', 'settings:edit',
-          'admins:manage'
-        ];
-        break;
-    }
+  // Only executives belong to a pod
+  if (this.role !== 'executive-manager' && this.assignedPickupLocation) {
+    this.assignedPickupLocation = null;
   }
 
   // Encrypt password using bcrypt
@@ -177,52 +169,11 @@ AdminSchema.statics.updateAdminPermissions = async function() {
     let updatedCount = 0;
 
     for (const admin of admins) {
-      // Get the expected permissions for this role
-      let expectedPermissions = [];
-
-      if (admin.role === 'super-admin') {
-        expectedPermissions = [
-          'drivers:view', 'drivers:create', 'drivers:edit', 'drivers:delete', 'drivers:verify',
-          'rides:view', 'rides:manage', 'rides:manual_booking',
-          'users:view', 'users:create', 'users:edit',
-          'queue:view', 'queue:manage',
-          'financial:view', 'financial:export',
-          'fare:view', 'fare:edit',
-          'settings:view', 'settings:edit',
-          'admins:manage'
-        ];
-      } else if (admin.role === 'admin') {
-        expectedPermissions = [
-          'drivers:view', 'drivers:create', 'drivers:edit', 'drivers:delete', 'drivers:verify',
-          'rides:view', 'rides:manage', 'rides:manual_booking',
-          'users:view', 'users:create', 'users:edit',
-          'queue:view', 'queue:manage',
-          'financial:view', 'financial:export',
-          'fare:view', 'fare:edit',
-          'settings:view', 'settings:edit',
-          'admins:manage'
-        ];
-      } else if (admin.role === 'executive-manager') {
-        expectedPermissions = [
-          'drivers:view',
-          'rides:view',
-          'rides:manage',
-          'rides:manual_booking',
-          'queue:view',
-          'queue:manage'
-        ];
-      } else if (admin.role === 'fleet-manager') {
-        expectedPermissions = [
-          'rides:view',
-          'drivers:view',
-          'drivers:create',
-          'queue:view'
-        ];
-      }
+      const expectedPermissions = permissionsForRole(admin.role);
 
       // Check if permissions need updating
-      const currentPerms = JSON.stringify(admin.permissions?.sort() || []);
-      const expectedPerms = JSON.stringify(expectedPermissions.sort());
+      const currentPerms = JSON.stringify([...(admin.permissions || [])].sort());
+      const expectedPerms = JSON.stringify([...expectedPermissions].sort());
 
       if (currentPerms !== expectedPerms) {
         admin.permissions = expectedPermissions;
@@ -240,6 +191,18 @@ AdminSchema.statics.updateAdminPermissions = async function() {
   } catch (error) {
     console.error('❌ Error updating admin permissions:', error);
   }
+};
+
+AdminSchema.statics.permissionsForRole = permissionsForRole;
+
+// Finds an admin by e-mail: as typed first, then ignoring letter case (e-mails are stored as typed at creation)
+AdminSchema.statics.findByEmail = async function(email) {
+  const typed = String(email || '').trim();
+  if (!typed) return null;
+  const exact = await this.findOne({ email: typed }).select('+password');
+  if (exact) return exact;
+  const lower = typed.toLowerCase();
+  return lower !== typed ? this.findOne({ email: lower }).select('+password') : null;
 };
 
 module.exports = mongoose.model('Admin', AdminSchema);

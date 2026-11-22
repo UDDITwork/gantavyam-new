@@ -1,8 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { FaUserPlus, FaUsers, FaCar, FaUser, FaTachometerAlt, FaCog, FaRoute, FaListOl, FaHandHoldingHeart, FaMoneyBillWave, FaBars, FaClipboardList } from 'react-icons/fa';
+import { FaUserPlus, FaUsers, FaCar, FaUser, FaTachometerAlt, FaCog, FaRoute, FaListOl, FaHandHoldingHeart, FaMoneyBillWave, FaBars, FaClipboardList, FaUserTie, FaMapMarkerAlt } from 'react-icons/fa';
 import { useSidebar } from '../../contexts/SidebarContext';
-import { useAdmin } from '../../contexts/AdminContext';
+import { useAdmin, EXECUTIVE_PAGES } from '../../contexts/AdminContext';
+
+// Executives (sub-admins of one pickup point) only get their four operations screens in the sidebar
+const EXECUTIVE_NAV_PATHS = EXECUTIVE_PAGES.map((page) => page.path);
 
 const getAllNavLinks = (PERMISSIONS) => [
   { to: '/admin/dashboard', label: 'Dashboard', icon: <FaTachometerAlt />, isExact: true, permission: PERMISSIONS.FINANCIAL_VIEW, allowedRoles: ['admin', 'super-admin'] }, // Dashboard - Admin/Super-Admin only
@@ -28,6 +31,7 @@ const getAllNavLinks = (PERMISSIONS) => [
     items: [
       { to: '/admin/register-driver', label: 'Register Driver', icon: <FaCar />, permission: PERMISSIONS.DRIVERS_CREATE },
       { to: '/admin/add-user', label: 'Add User', icon: <FaUserPlus />, permission: PERMISSIONS.USERS_CREATE },
+      { to: '/admin/executives', label: 'Executives', icon: <FaUserTie />, permission: PERMISSIONS.ADMINS_MANAGE }, // Admin/Super-Admin (admins:manage) only
     ]
   },
   {
@@ -41,8 +45,11 @@ const getAllNavLinks = (PERMISSIONS) => [
 const AdminSidebar = () => {
   const location = useLocation();
   const { isCollapsed, toggleSidebar } = useSidebar();
-  const { admin, hasPermission, PERMISSIONS } = useAdmin();
+  const { admin, hasPermission, PERMISSIONS, isExecutive, assignedPod } = useAdmin();
   const [hoveredItem, setHoveredItem] = useState(null);
+
+  // Pickup point of an executive, shown as a badge under the brand
+  const podName = assignedPod ? (assignedPod.displayName || assignedPod.name || assignedPod.shortName || assignedPod.key) : '';
 
   // Filter nav links based on user permissions
   const navLinks = useMemo(() => {
@@ -68,6 +75,9 @@ const AdminSidebar = () => {
           // Check role restriction first
           if (!isAllowedByRole(item)) return false;
 
+          // Executives only get their four operations screens
+          if (isExecutive && !EXECUTIVE_NAV_PATHS.includes(item.to)) return false;
+
           // If no permission required, always show
           if (!item.permission) return true;
 
@@ -85,11 +95,12 @@ const AdminSidebar = () => {
       } else {
         // Single item - check role and permission
         if (!isAllowedByRole(section)) return null;
+        if (isExecutive && !EXECUTIVE_NAV_PATHS.includes(section.to)) return null;
         if (!section.permission) return section;
         return hasPermission(section.permission) ? section : null;
       }
     }).filter(Boolean); // Remove null entries
-  }, [admin, hasPermission, PERMISSIONS]);
+  }, [admin, hasPermission, PERMISSIONS, isExecutive]);
 
   const isActiveLink = (to, isExact = false) => {
     if (isExact) {
@@ -118,6 +129,32 @@ const AdminSidebar = () => {
           </div>
         </div>
       </div>
+
+      {/* Pickup point (executives only) */}
+      {isExecutive && (
+        <div className={`border-b border-slate-700 ${isCollapsed ? 'px-2 py-3' : 'px-4 py-3'}`}>
+          {isCollapsed ? (
+            <div
+              title={podName ? `Pickup point: ${podName}` : 'No pickup point assigned yet'}
+              className={`w-10 h-10 mx-auto rounded-lg flex items-center justify-center text-xs font-bold ${
+                assignedPod ? 'bg-blue-600/20 text-blue-300 border border-blue-500/40' : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+              }`}
+            >
+              {assignedPod ? assignedPod.key : '!'}
+            </div>
+          ) : (
+            <div className={`rounded-lg px-3 py-2 border ${
+              assignedPod ? 'bg-blue-600/10 border-blue-500/40' : 'bg-amber-500/10 border-amber-500/40'
+            }`}>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Pickup point</p>
+              <p className={`mt-1 flex items-start gap-2 text-sm font-medium leading-snug ${assignedPod ? 'text-white' : 'text-amber-300'}`}>
+                <FaMapMarkerAlt className={`mt-0.5 flex-shrink-0 ${assignedPod ? 'text-blue-400' : 'text-amber-400'}`} />
+                <span>{podName || 'Not assigned yet'}</span>
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Navigation */}
       <nav className="flex-1 py-6 overflow-y-auto overflow-x-hidden">

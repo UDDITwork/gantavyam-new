@@ -2,6 +2,8 @@
 const jwt = require('jsonwebtoken');
 const config = require('../config/config');
 const Driver = require('../models/Driver');
+const { executiveMayCall } = require('./executiveAccess');
+const { podOf } = require('../utils/podScope');
 
 // Try to import User model but don't crash if it doesn't exist
 let User;
@@ -190,6 +192,33 @@ const adminProtect = async (req, res, next) => {
           success: false,
           error: 'Not authorized as admin'
         });
+      }
+
+      // A deactivated admin or executive is locked out at once, even with a token that has not expired yet
+      if (admin.isActive === false) {
+        return res.status(403).json({
+          success: false,
+          error: 'This account has been deactivated'
+        });
+      }
+
+      // Executives (sub-admins of one pickup point) may only call the routes of their four features
+      if (admin.role === 'executive-manager') {
+        if (!executiveMayCall(req.method, req.originalUrl)) {
+          return res.status(403).json({
+            success: false,
+            error: 'Your account does not have access to this',
+            message: 'Executives can only use Fleet Manager, Queue Management, Register Driver and Manual Booking.'
+          });
+        }
+        // ... and only once the admin has linked them to a pickup point
+        if (!podOf(admin)) {
+          return res.status(403).json({
+            success: false,
+            error: 'Your account is not linked to a pickup point yet',
+            message: 'Your account is not linked to a pickup point yet. Please ask the admin to set it.'
+          });
+        }
       }
 
       // Add admin to request object

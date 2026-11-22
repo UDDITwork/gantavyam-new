@@ -7,6 +7,7 @@ const config = require('../config/config');
 const User = require('../models/User');
 const Driver = require('../models/Driver');
 const Admin = require('../models/Admin');
+const { publicPodOf } = require('../utils/podScope');
 
 // User login
 router.post('/user/login', async (req, res) => {
@@ -145,7 +146,7 @@ router.post('/admin/login', async (req, res) => {
     }
     
     // Find admin by email and include password for validation
-    const admin = await Admin.findOne({ email }).select('+password');
+    const admin = await Admin.findByEmail(email);
     if (!admin) {
       console.log('🔐 [Admin Login] Admin not found:', { email });
       return res.status(401).json({
@@ -164,6 +165,15 @@ router.post('/admin/login', async (req, res) => {
       });
     }
     
+    // A deactivated admin / executive cannot log in
+    if (admin.isActive === false) {
+      console.log('🔐 [Admin Login] Account deactivated:', { email });
+      return res.status(403).json({
+        success: false,
+        error: 'This account has been deactivated. Please contact the admin.'
+      });
+    }
+
     // Generate JWT token
     const token = jwt.sign(
       { 
@@ -190,7 +200,10 @@ router.post('/admin/login', async (req, res) => {
         name: admin.name,
         email: admin.email,
         role: admin.role,
-        permissions: admin.permissions || []
+        permissions: admin.permissions || [],
+        // Executives belong to one pickup point (pod); null for everybody else
+        assignedPickupLocation: admin.assignedPickupLocation || null,
+        pod: publicPodOf(admin)
       }
     });
   } catch (error) {

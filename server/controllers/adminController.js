@@ -9,14 +9,32 @@ const { createContextLogger } = require('../config/logger');
 
 const logger = createContextLogger('AdminController');
 
+const { isExecutive } = require('../utils/podScope');
+
+// Personal, bank and document details an executive does not need to run a pickup point
+const EXECUTIVE_HIDDEN_DRIVER_FIELDS = [
+  'aadhaarNo', 'aadhaarPhotoFront', 'aadhaarPhotoBack', 'bankDetails',
+  'drivingLicenseNo', 'drivingLicensePhoto', 'permitNo', 'permitPhoto',
+  'fitnessCertificateNo', 'fitnessCertificatePhoto', 'insurancePolicyNo', 'insurancePolicyPhoto',
+  'registrationCertificatePhoto', 'pushSubscription', 'password'
+];
+
 // @desc    Get all drivers
 // @route   GET /api/admin/drivers
 // @access  Private (Admin only)
 exports.getAllDrivers = async (req, res) => {
   try {
     logger.info('Admin fetching all drivers', { adminId: req.admin?.id });
-    const drivers = await Driver.find().select('-password');
-    
+    // Drivers are one shared pool: an executive sees every driver, but without identity / bank / document details
+    let drivers = await Driver.find().select('-password');
+    if (isExecutive(req.admin)) {
+      drivers = drivers.map((driver) => {
+        const plain = typeof driver.toObject === 'function' ? driver.toObject() : { ...driver };
+        EXECUTIVE_HIDDEN_DRIVER_FIELDS.forEach((field) => delete plain[field]);
+        return plain;
+      });
+    }
+
     logger.info('Successfully fetched drivers', { count: drivers.length });
     res.status(200).json({
       success: true,

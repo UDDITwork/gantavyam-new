@@ -13,7 +13,7 @@ const Admin = require('./models/Admin');
 const { createContextLogger } = require('./config/logger');
 const requestLogger = require('./middleware/requestLogger');
 const { seedMetroStations } = require('./utils/seedMetroStations');
-const { ensureFixedPickupLocation } = require('./seeders/fixedPickupLocation');
+const { ensurePickupLocations } = require('./seeders/fixedPickupLocation');
 
 const logger = createContextLogger('Server');
 
@@ -117,10 +117,10 @@ async function startDatabase() {
     }
   });
 
-  // The admin booking page, drivers going online and the user app look the fixed pickup point up in the database
-  await runTask('pickup location', async () => {
-    const created = await ensureFixedPickupLocation();
-    logger.info(created ? 'Created the fixed pickup location' : 'Fixed pickup location already exists');
+  // The admin booking page, drivers going online and the user app look the pickup points up in the database
+  await runTask('pickup locations', async () => {
+    const created = await ensurePickupLocations();
+    logger.info(created.length ? `Created the pickup locations: ${created.join(', ')}` : 'Pickup locations already exist');
   });
 
   // Setup periodic database monitoring

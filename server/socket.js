@@ -15,6 +15,8 @@ const RideLifecycleService = require('./services/rideLifecycle');
 const EnhancedNotificationService = require('./utils/enhancedNotification');
 const RideCompletionService = require('./utils/rideCompletionService');
 const { buildDriverRidePayload, markDriverNotified, collectDeliverableRequests } = require('./utils/driverRequestDelivery');
+const { isExecutive, podOf, podRoomName, EXECUTIVES_ROOM } = require('./utils/podScope');
+const { toAdmins, toAdminsAndExecutives } = require('./utils/adminRealtime');
 
 let io;
 let enhancedNotificationService;
@@ -674,6 +676,10 @@ const initializeSocket = (server) => {
             console.error('❌ Admin not found for ID:', decoded.id);
             return next(new Error('Authentication error: Admin not found'));
           }
+          if (admin.isActive === false) {
+            console.error('❌ Admin account is deactivated:', decoded.id);
+            return next(new Error('Authentication error: Account deactivated'));
+          }
 
           socket.user = {
             _id: decoded.id,
@@ -686,7 +692,9 @@ const initializeSocket = (server) => {
             fullName: admin.fullName || admin.name || 'Admin',
             email: admin.email,
             role: admin.role,
-            permissions: admin.permissions
+            permissions: admin.permissions,
+            // Executives belong to one pickup point (pod); null for admins
+            assignedPickupLocation: admin.assignedPickupLocation || null
           };
 
           console.log('✅ Admin authentication successful:', {
@@ -815,6 +823,15 @@ const initializeSocket = (server) => {
       // loading); requests the app already confirmed are not sent again.
       setTimeout(() => deliverPendingRequests(socket, 'connect', { onlyUnconfirmed: true }), 300);
       setTimeout(() => deliverPendingRequests(socket, 'connect (retry)', { onlyUnconfirmed: true }), 2500);
+    } else if (socket.user.role === 'admin' && isExecutive(socket.admin)) {
+      // An executive (sub-admin of one pickup point) never joins the rooms that carry every pod's bookings:
+      // only their own room, the room that holds all executives (drivers and the queue are shared) and the
+      // room of their pod (its bookings and rides)
+      socket.join(`admin_${socket.user._id}`);
+      socket.join(EXECUTIVES_ROOM);
+      const executivePodRoom = podRoomName(podOf(socket.admin));
+      if (executivePodRoom) socket.join(executivePodRoom);
+      console.log(`✅ Executive ${socket.user._id} joined rooms: admin_${socket.user._id}, ${EXECUTIVES_ROOM}, ${executivePodRoom || '(no pod)'}`);
     } else if (socket.user.role === 'admin') {
       socket.join('admins');
       socket.join('admin-room');
@@ -1233,7 +1250,7 @@ const initializeSocket = (server) => {
         }
 
         // Notify other admins
-        io.to('admins').emit('onlineRequestProcessed', {
+        toAdminsAndExecutives(io, 'admins').emit('onlineRequestProcessed', {
           requestId: request._id,
           driverName: request.driverName,
           status: 'approved',
@@ -1333,7 +1350,7 @@ const initializeSocket = (server) => {
         });
 
         // Notify other admins
-        io.to('admins').emit('onlineRequestProcessed', {
+        toAdminsAndExecutives(io, 'admins').emit('onlineRequestProcessed', {
           requestId: request._id,
           driverName: request.driverName,
           status: 'rejected',
@@ -1541,7 +1558,7 @@ const initializeSocket = (server) => {
         });
 
         // Notify other admins
-        io.to('admins').emit('offlineRequestProcessed', {
+        toAdminsAndExecutives(io, 'admins').emit('offlineRequestProcessed', {
           requestId: request._id,
           driverName: request.driverName,
           status: 'approved',
@@ -1615,7 +1632,7 @@ const initializeSocket = (server) => {
         });
 
         // Notify other admins
-        io.to('admins').emit('offlineRequestProcessed', {
+        toAdminsAndExecutives(io, 'admins').emit('offlineRequestProcessed', {
           requestId: request._id,
           driverName: request.driverName,
           status: 'rejected',
@@ -2196,7 +2213,7 @@ const initializeSocket = (server) => {
           io.to(`admin_${rideRequest.adminId}`).emit('driverAcceptedFmBooking', adminAcceptanceData);
 
           // Also emit to admin-room for all admins to see
-          io.to('admin-room').emit('driverAcceptedFmBooking', adminAcceptanceData);
+          toAdmins(io, 'admin-room', rideRequest.pickupLocation?.boothName).emit('driverAcceptedFmBooking', adminAcceptanceData);
         }
 
         console.log('✅ Ride acceptance complete:', {
@@ -2432,7 +2449,7 @@ const initializeSocket = (server) => {
           });
 
           // Notify Fleet Manager that driver rejected - booking is back in their queue
-          io.to('admin-room').emit('driverRejectedFmBooking', {
+          toAdmins(io, 'admin-room', rideRequest.pickupLocation?.boothName).emit('driverRejectedFmBooking', {
             rideId: rideRequest._id,
             bookingId: rideRequest.bookingId,
             rejectedBy: {
@@ -3471,7 +3488,7 @@ const broadcastRideRequest = async (rideRequest) => {
     const adminsInRoom = adminRoom ? adminRoom.size : 0;
     
     console.log(`📢 Broadcasting to ${adminsInRoom} admins in 'admin-room'`);
-    io.to('admin-room').emit('customerRideRequest', {
+    toAdmins(io, 'admin-room', rideRequest.pickupLocation?.boothName).emit('customerRideRequest', {
       ...rideDataForAdmin, // Admin gets full breakdown
       message: 'New customer ride request',
       needsAssignment: true
@@ -3608,7 +3625,7 @@ const sendRideRequestToDriver = async (rideRequest, driverId) => {
         const roomSize = io.sockets.adapter.rooms.get(driverRoom)?.size || 0;
         console.log(`✅ Ride request delivered to driver ${driverIdString} (attempt ${attempt}, ${roomSize} connection(s) in ${driverRoom})`);
 
-        io.to('admin-room').emit('manualBookingSentToDriver', {
+        toAdmins(io, 'admin-room', rideRequest.pickupLocation?.boothName).emit('manualBookingSentToDriver', {
           rideId: rideRequest._id,
           bookingId: rideRequest.bookingId,
           driverId: driverIdString,
@@ -3639,7 +3656,7 @@ const sendRideRequestToDriver = async (rideRequest, driverId) => {
       ? 'Driver app is not reachable (no confirmation) - the request will be delivered when it reconnects'
       : 'Driver not online - not reachable right now; the request will be delivered when the driver reconnects';
 
-    io.to('admin-room').emit('manualBookingFailedToSend', {
+    toAdmins(io, 'admin-room', rideRequest.pickupLocation?.boothName).emit('manualBookingFailedToSend', {
       rideId: rideRequest._id,
       bookingId: rideRequest.bookingId,
       driverId: driverIdString,

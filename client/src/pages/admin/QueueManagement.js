@@ -5,8 +5,10 @@ import { initializeSocket, getSocket } from '../../services/socket';
 import { getImageUrl } from '../../utils/imageUtils';
 import ModernCard from '../../components/admin/ModernCard';
 import api from '../../services/api';
+import { useAdmin } from '../../contexts/AdminContext';
 
 const QueueManagement = () => {
+  const { isExecutive } = useAdmin();
   const [drivers, setDrivers] = useState([]);
   const [onlineDrivers, setOnlineDrivers] = useState([]);
   const [engagedDrivers, setEngagedDrivers] = useState([]); // Drivers currently on a ride
@@ -1203,9 +1205,11 @@ const QueueManagement = () => {
                           <span className="flex items-center">
                             <FiPhone className="mr-1" /> {driver.mobileNo}
                           </span>
-                          <span className="flex items-center">
-                            <FiMapPin className="mr-1" /> {driver.currentPickupLocation || 'No location'}
-                          </span>
+                          {!isExecutive && (
+                            <span className="flex items-center">
+                              <FiMapPin className="mr-1" /> {driver.currentPickupLocation || 'No location'}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1357,9 +1361,11 @@ const QueueManagement = () => {
                             <span className="flex items-center">
                               <FiPhone className="mr-1 h-3 w-3" /> {request.driverPhone}
                             </span>
-                            <span className="flex items-center">
-                              <FiMapPin className="mr-1 h-3 w-3" /> {request.boothName}
-                            </span>
+                            {!isExecutive && (
+                              <span className="flex items-center">
+                                <FiMapPin className="mr-1 h-3 w-3" /> {request.boothName}
+                              </span>
+                            )}
                           </div>
                           <div className="text-xs text-gray-500 mt-1">
                             <span className="bg-gray-200 px-2 py-0.5 rounded">{request.vehicleType}</span>
@@ -1446,7 +1452,7 @@ const QueueManagement = () => {
                             <span className="flex items-center">
                               <FiPhone className="mr-1 h-3 w-3" /> {request.driverPhone}
                             </span>
-                            {request.boothName && (
+                            {request.boothName && !isExecutive && (
                               <span className="flex items-center">
                                 <FiMapPin className="mr-1 h-3 w-3" /> {request.boothName}
                               </span>

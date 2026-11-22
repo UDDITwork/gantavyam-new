@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { driverSignup } from '../../services/api';
+import { useAdmin } from '../../contexts/AdminContext';
 import ModernUpload from '../../components/common/ModernUpload';
 import CameraCapture from '../../components/common/CameraCapture';
 import HybridDocumentUpload from '../../components/common/HybridDocumentUpload';
@@ -37,6 +38,7 @@ const steps = [
 
 const AddDriver = () => {
   const navigate = useNavigate();
+  const { isExecutive } = useAdmin();
   const [formData, setFormData] = useState({
     fullName: '',
     mobileNo: '',
@@ -501,7 +503,8 @@ const AddDriver = () => {
       setCurrentStep('');
       setSuccess('Driver registration successful! Driver is now active.');
       toast.success('Driver registered successfully!');
-      setTimeout(() => navigate('/admin/drivers'), 1500);
+      // Executives cannot open the drivers list: they get a fresh registration form instead
+      setTimeout(() => (isExecutive ? window.location.assign('/admin/register-driver') : navigate('/admin/drivers')), 1500);
     } catch (err) {
       setError(err.error || 'Failed to register driver');
       setLoading(false);
@@ -583,12 +586,14 @@ const AddDriver = () => {
           <h1 className="text-2xl font-bold text-gray-900">Register New Driver</h1>
           <p className="text-gray-600 mt-1">Add a new driver to the system</p>
         </div>
-        <button
-          onClick={() => navigate('/admin/drivers')}
-          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-        >
-          View All Drivers
-        </button>
+        {!isExecutive && (
+          <button
+            onClick={() => navigate('/admin/drivers')}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            View All Drivers
+          </button>
+        )}
       </div>
 
       {/* Error/Success Messages */}

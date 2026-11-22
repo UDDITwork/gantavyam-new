@@ -45,7 +45,8 @@ const AdminLogin = () => {
         updateAdmin(response.admin);
 
         console.log('🔐 [Admin Login] Token stored:', !!localStorage.getItem('adminToken'));
-        navigate('/admin');
+        // Executives (sub-admins of one pickup point) start on Manual Booking, everybody else on the welcome page
+        navigate(response.admin.role === 'executive-manager' ? '/admin/manual-booking' : '/admin');
       } else {
         console.error('🔐 [Admin Login] Login failed - no token in response:', response);
         setError('Login failed.');

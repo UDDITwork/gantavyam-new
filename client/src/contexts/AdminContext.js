@@ -1,7 +1,21 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import { getPodByKey } from '../config/pickupPods';
 
 // Create context
 const AdminContext = createContext();
+
+// Executives are sub-admins of ONE pickup point ("pod"): they only use Fleet Manager, Queue Management,
+// Manual Booking and Register Driver, and only see their own pod.
+export const EXECUTIVE_ROLE = 'executive-manager';
+
+// The login response carries the executive's pod twice: assignedPickupLocation ('HK' | 'PC') and the pod object.
+// Keep both whenever the admin is stored or restored, filling in whichever one is missing from the shared pod list.
+const normalizeAdmin = (adminData) => {
+  if (!adminData || typeof adminData !== 'object') return adminData;
+  const podKey = adminData.assignedPickupLocation || (adminData.pod && adminData.pod.key) || null;
+  const pod = adminData.pod || getPodByKey(podKey) || null;
+  return { ...adminData, assignedPickupLocation: podKey, pod };
+};
 
 // Permission constants (must match backend)
 export const PERMISSIONS = {
@@ -42,6 +56,15 @@ export const PERMISSIONS = {
   ADMINS_MANAGE: 'admins:manage'
 };
 
+// The only admin-panel screens an executive may use (the server enforces the same list on its side).
+// The first one is where an executive lands after login.
+export const EXECUTIVE_PAGES = [
+  { path: '/admin/manual-booking', permission: PERMISSIONS.RIDES_MANUAL_BOOKING },
+  { path: '/admin/fleet-manager', permission: PERMISSIONS.RIDES_VIEW },
+  { path: '/admin/queue', permission: PERMISSIONS.QUEUE_VIEW },
+  { path: '/admin/register-driver', permission: PERMISSIONS.DRIVERS_CREATE }
+];
+
 // Provider component
 export const AdminProvider = ({ children }) => {
   const [admin, setAdmin] = useState(null);
@@ -70,7 +93,7 @@ export const AdminProvider = ({ children }) => {
             localStorage.setItem('adminDataVersion', CURRENT_VERSION);
             setAdmin(null);
           } else {
-            setAdmin(adminData);
+            setAdmin(normalizeAdmin(adminData));
           }
         } else if (!adminDataVersion) {
           // First time with versioning, set the version
@@ -88,8 +111,9 @@ export const AdminProvider = ({ children }) => {
 
   // Update admin data (call this after login)
   const updateAdmin = (adminData) => {
-    setAdmin(adminData);
-    localStorage.setItem('admin', JSON.stringify(adminData));
+    const normalized = normalizeAdmin(adminData);
+    setAdmin(normalized);
+    localStorage.setItem('admin', JSON.stringify(normalized));
     localStorage.setItem('adminDataVersion', '2'); // Ensure version is set
   };
 
@@ -157,6 +181,15 @@ export const AdminProvider = ({ children }) => {
     return admin && admin.role === 'executive-manager';
   };
 
+  // Executive = sub-admin of one pickup point (plain boolean, not a function)
+  const isExecutive = !!admin && admin.role === EXECUTIVE_ROLE;
+
+  // The executive's pickup point ({ key, name, displayName, shortName, ... }), null for everybody else
+  const assignedPod = useMemo(() => {
+    if (!admin || admin.role !== EXECUTIVE_ROLE) return null;
+    return admin.pod || getPodByKey(admin.assignedPickupLocation) || null;
+  }, [admin]);
+
   const value = {
     admin,
     loading,
@@ -168,6 +201,8 @@ export const AdminProvider = ({ children }) => {
     getRoleDisplayName,
     isSuperAdmin,
     isExecutiveManager,
+    isExecutive,
+    assignedPod,
     PERMISSIONS
   };
 

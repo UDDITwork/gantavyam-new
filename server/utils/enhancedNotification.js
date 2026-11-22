@@ -3,6 +3,9 @@
  * Provides reliable real-time updates with fallback mechanisms
  */
 
+const { roomsForEvent } = require('./podEvents');
+const { EXECUTIVES_ROOM } = require('./podScope');
+
 class EnhancedNotificationService {
   constructor(io) {
     this.io = io;
@@ -67,6 +70,14 @@ class EnhancedNotificationService {
       // Also send specific event for backward compatibility
       const specificEventResult = await this.emitWithAck('admins', notification.eventType, notification.data);
 
+      // Executives (sub-admins of one pickup point) are not in the "admins" room: they get driver / queue events
+      // always, and booking / ride events only for their own pod. Done once, not again on every retry below.
+      if (notification.attempts === 1) {
+        this.deliverToExecutives(notification, adminNotification).catch((executiveError) => {
+          console.error(`❌ [Executive Delivery] Failed for ${notification.eventType}:`, executiveError.message);
+        });
+      }
+
       // Log delivery status
       console.log(`✅ [Admin Debug] Notification ${notification.id} sent for ${notification.eventType}`);
       console.log(`📊 [Delivery Stats] rideUpdate: ${rideUpdateResult.delivered}/${rideUpdateResult.total}, ${notification.eventType}: ${specificEventResult.delivered}/${specificEventResult.total}`);
@@ -115,6 +126,21 @@ class EnhancedNotificationService {
         error: error.message,
         notificationId: notification.id
       };
+    }
+  }
+
+  /**
+   * Deliver an admin event to the executives it is meant for (see utils/podEvents.js)
+   */
+  async deliverToExecutives(notification, adminNotification) {
+    // Nothing to do while no executive is connected (saves the look-ups that find out the pod)
+    const executives = this.io.sockets.adapter.rooms.get(EXECUTIVES_ROOM);
+    if (!executives || executives.size === 0) return;
+
+    const deliveries = await roomsForEvent(notification.eventType, notification.data);
+    for (const { room, data } of deliveries) {
+      this.io.to(room).emit('rideUpdate', { ...adminNotification, data });
+      this.io.to(room).emit(notification.eventType, data);
     }
   }
 

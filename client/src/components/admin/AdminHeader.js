@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FaSearch, FaBell, FaUserCircle, FaChevronDown, FaSignOutAlt, FaCog, FaCar, FaUser, FaCheck, FaTimes } from 'react-icons/fa';
+import { FaSearch, FaBell, FaUserCircle, FaChevronDown, FaSignOutAlt, FaCog, FaCar, FaUser, FaCheck, FaTimes, FaMapMarkerAlt } from 'react-icons/fa';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAdmin } from '../../contexts/AdminContext';
 import { getSocket } from '../../services/socket';
@@ -9,7 +9,7 @@ const AdminHeader = () => {
   const [searchValue, setSearchValue] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
-  const { admin, clearAdmin, getRoleDisplayName } = useAdmin();
+  const { admin, clearAdmin, getRoleDisplayName, isExecutive, assignedPod } = useAdmin();
 
   // Notification state (Admin Only)
   const [notifications, setNotifications] = useState([]);
@@ -225,6 +225,19 @@ const AdminHeader = () => {
 
       {/* Right side - Search, Notifications, Profile */}
       <div className="flex items-center space-x-4">
+        {/* Pickup point badge - executives only */}
+        {isExecutive && (
+          <span
+            title={assignedPod ? `Pickup point: ${assignedPod.displayName || assignedPod.name}` : 'No pickup point assigned yet'}
+            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border whitespace-nowrap ${
+              assignedPod ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-amber-50 text-amber-700 border-amber-200'
+            }`}
+          >
+            <FaMapMarkerAlt className="h-3 w-3" />
+            {assignedPod ? (assignedPod.shortName || assignedPod.displayName || assignedPod.name) : 'No pickup point'}
+          </span>
+        )}
+
         {/* Search */}
         <div className="relative">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">

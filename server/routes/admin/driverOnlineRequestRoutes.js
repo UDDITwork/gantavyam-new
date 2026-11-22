@@ -10,6 +10,7 @@ const DriverOnlineRequest = require('../../models/DriverOnlineRequest');
 const Driver = require('../../models/Driver');
 const { getIO } = require('../../socket');
 const { acquireLock, releaseLock } = require('../../utils/lockManager');
+const { toAdminsAndExecutives } = require('../../utils/adminRealtime');
 
 // Middleware to ensure only admins can access these routes
 router.use(adminProtect);
@@ -218,7 +219,7 @@ router.post('/:id/approve', checkPermission(PERMISSIONS.QUEUE_MANAGE), async (re
       });
 
       // Notify other admins
-      io.to('admins').emit('onlineRequestProcessed', {
+      toAdminsAndExecutives(io, 'admins').emit('onlineRequestProcessed', {
         requestId: request._id,
         driverName: request.driverName,
         status: 'approved',
@@ -332,7 +333,7 @@ router.post('/:id/reject', checkPermission(PERMISSIONS.QUEUE_MANAGE), async (req
         message: 'Your online request has been rejected. You can submit a new request.'
       });
 
-      io.to('admins').emit('onlineRequestProcessed', {
+      toAdminsAndExecutives(io, 'admins').emit('onlineRequestProcessed', {
         requestId: request._id,
         driverName: request.driverName,
         status: 'rejected',

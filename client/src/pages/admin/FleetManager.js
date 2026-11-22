@@ -22,6 +22,16 @@ import { MdRefresh } from 'react-icons/md';
 import * as api from '../../services/api';
 import { initializeSocket, getSocket } from '../../services/socket';
 import { getImageUrl } from '../../utils/imageUtils';
+import { boothInPod, getPodByKey } from '../../config/pickupPods';
+import PodFilterBar, { PodBadge, usePodFilter } from '../../components/admin/PodFilter';
+
+// The booth (pickup point) a booking or ride belongs to. pickupLocation is an object ({ boothName }) on current
+// data and a plain string on older rows.
+const getRideBooth = (ride) => {
+  const pickup = ride && ride.pickupLocation;
+  if (typeof pickup === 'string') return pickup;
+  return (pickup && pickup.boothName) || (ride && ride.pickupStation) || '';
+};
 
 /**
  * FleetManager - Enhanced with Open Bookings Tab
@@ -67,6 +77,9 @@ const FleetManager = () => {
   const [filterSource, setFilterSource] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [lastUpdate, setLastUpdate] = useState(null);
+
+  // Pickup point filter (admins see both pods; an executive only ever receives their own)
+  const { isExecutive, assignedPod, podFilter, setPodFilter } = usePodFilter();
 
   // Format time ago
   const formatTimeAgo = (timestamp) => {
@@ -648,9 +661,12 @@ const FleetManager = () => {
         filterStatus === 'all' ||
         ride.status === filterStatus;
 
-      return matchesSearch && matchesSource && matchesStatus;
+      // Pickup point filter
+      const matchesPod = boothInPod(getRideBooth(ride), podFilter);
+
+      return matchesSearch && matchesSource && matchesStatus && matchesPod;
     });
-  }, [rides, searchQuery, filterSource, filterStatus]);
+  }, [rides, searchQuery, filterSource, filterStatus, podFilter]);
 
   // Calculate stats
   const stats = useMemo(() => ({
@@ -663,6 +679,17 @@ const FleetManager = () => {
     completed: filteredRides.filter(r => r.status === 'completed').length,
     cancelled: filteredRides.filter(r => r.status === 'cancelled').length,
   }), [filteredRides]);
+
+  // ---- Pickup point filtering: done while rendering, so the realtime handlers above keep every booking in state ----
+  const podFilterLabel = podFilter === 'all' ? '' : (getPodByKey(podFilter)?.shortName || '');
+
+  const visibleOpenBookings = useMemo(
+    () => openBookings.filter(booking => boothInPod(getRideBooth(booking), podFilter)),
+    [openBookings, podFilter]
+  );
+
+  // All pickup points: the running counter the page already keeps. One pickup point: what is actually listed.
+  const openBookingsShown = podFilter === 'all' ? openBookingsCount : visibleOpenBookings.length;
 
   // Status Badge Component
   const StatusBadge = ({ status }) => {
@@ -743,7 +770,10 @@ const FleetManager = () => {
             }`}>
               {isManual ? '📋 MANUAL BOOKING' : '📱 APP BOOKING'}
             </span>
-            <StatusBadge status={ride.status} />
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge status={ride.status} />
+              <PodBadge booth={getRideBooth(ride)} />
+            </div>
           </div>
           <span className="text-xs text-gray-500">
             {formatTimeAgo(ride.acceptedAt || ride.createdAt)}
@@ -810,7 +840,7 @@ const FleetManager = () => {
             <div className="flex-1">
               <div className="text-gray-500 text-xs">From</div>
               <div className="font-medium text-gray-900">
-                {ride.pickupLocation?.boothName || ride.pickupStation || 'N/A'}
+                {getRideBooth(ride) || 'N/A'}
               </div>
             </div>
           </div>
@@ -859,7 +889,7 @@ const FleetManager = () => {
     <div className="bg-white rounded-lg shadow-md p-4 border-l-4 border-l-orange-500 hover:shadow-lg transition-all">
       {/* Header */}
       <div className="flex justify-between items-start mb-3">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="px-2 py-1 rounded text-xs font-medium bg-orange-100 text-orange-800">
             ⏳ PENDING ASSIGNMENT
           </span>
@@ -867,6 +897,7 @@ const FleetManager = () => {
             {getVehicleIcon(booking.vehicleType)}
             <span className="ml-1">{booking.vehicleType?.toUpperCase()}</span>
           </span>
+          <PodBadge booth={getRideBooth(booking)} />
         </div>
         <span className="text-xs text-gray-500">
           {formatTimeAgo(booking.submittedAt)}
@@ -894,7 +925,7 @@ const FleetManager = () => {
           <div className="flex-1">
             <div className="text-gray-500 text-xs">From</div>
             <div className="font-medium text-gray-900">
-              {booking.pickupLocation?.boothName || 'N/A'}
+              {getRideBooth(booking) || 'N/A'}
             </div>
           </div>
         </div>
@@ -953,7 +984,7 @@ const FleetManager = () => {
 
       {/* Header */}
       <div className="mb-6">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-3">
             <FaClipboardList className="text-3xl text-blue-600" />
             <div>
@@ -961,6 +992,12 @@ const FleetManager = () => {
               <p className="text-sm text-gray-500">Manage bookings and assign drivers</p>
             </div>
           </div>
+          <PodFilterBar
+            isExecutive={isExecutive}
+            assignedPod={assignedPod}
+            value={podFilter}
+            onChange={setPodFilter}
+          />
         </div>
 
         {/* Tab Navigation */}
@@ -975,9 +1012,9 @@ const FleetManager = () => {
           >
             <FaBell className="inline mr-2" />
             Open Bookings
-            {openBookingsCount > 0 && (
+            {openBookingsShown > 0 && (
               <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                {openBookingsCount}
+                {openBookingsShown}
               </span>
             )}
           </button>
@@ -1187,6 +1224,11 @@ const FleetManager = () => {
                             <span className="ml-2 font-medium">₹{selectedBooking.estimatedFare}</span>
                           </div>
                           <div className="col-span-2">
+                            <span className="text-gray-500">Pickup:</span>
+                            <span className="ml-2 font-medium">{getRideBooth(selectedBooking) || 'N/A'}</span>
+                            <PodBadge booth={getRideBooth(selectedBooking)} className="ml-2" />
+                          </div>
+                          <div className="col-span-2">
                             <span className="text-gray-500">Drop:</span>
                             <span className="ml-2 font-medium">{selectedBooking.dropLocation?.address}</span>
                           </div>
@@ -1331,7 +1373,7 @@ const FleetManager = () => {
                                             ⭐ {driver.rating.toFixed(1)} ({driver.totalRides || 0} rides)
                                           </div>
                                         )}
-                                        {driver.currentMetroBooth && (
+                                        {driver.currentMetroBooth && !isExecutive && (
                                           <div className="text-xs text-gray-500">
                                             📍 {driver.currentMetroBooth}
                                           </div>
@@ -1395,7 +1437,8 @@ const FleetManager = () => {
               <>
                 <div className="flex justify-between items-center mb-4">
                   <p className="text-sm text-gray-600">
-                    {openBookingsCount} booking{openBookingsCount !== 1 ? 's' : ''} waiting for driver assignment
+                    {openBookingsShown} booking{openBookingsShown !== 1 ? 's' : ''} waiting for driver assignment
+                    {podFilterLabel ? ` at ${podFilterLabel}` : ''}
                   </p>
                   <button
                     onClick={fetchOpenBookings}
@@ -1412,17 +1455,21 @@ const FleetManager = () => {
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
                     <p className="text-gray-600">Loading open bookings...</p>
                   </div>
-                ) : openBookings.length === 0 ? (
+                ) : visibleOpenBookings.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-64 bg-white rounded-lg">
                     <FaClipboardList className="text-6xl text-gray-300 mb-4" />
-                    <p className="text-gray-600 text-lg font-medium">No open bookings</p>
+                    <p className="text-gray-600 text-lg font-medium">
+                      No open bookings{podFilterLabel ? ` at ${podFilterLabel}` : ''}
+                    </p>
                     <p className="text-gray-500 text-sm mt-2">
-                      New bookings from Manual Booking will appear here
+                      {podFilterLabel && openBookings.length > 0
+                        ? 'Other pickup points have open bookings: choose All pickup points to see them'
+                        : 'New bookings from Manual Booking will appear here'}
                     </p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {openBookings.map(booking => (
+                    {visibleOpenBookings.map(booking => (
                       <OpenBookingCard
                         key={booking._id || booking.bookingId}
                         booking={booking}
@@ -1567,7 +1614,7 @@ const FleetManager = () => {
           <FaClipboardList className="text-6xl text-gray-300 mb-4" />
           <p className="text-gray-600 text-lg font-medium">No rides found</p>
           <p className="text-gray-500 text-sm mt-2">
-            {searchQuery || filterSource !== 'all' || filterStatus !== 'all'
+            {searchQuery || filterSource !== 'all' || filterStatus !== 'all' || podFilter !== 'all'
               ? 'Try adjusting your filters or search query'
               : 'No rides in the last 24 hours. Click Refresh to check for new rides.'}
           </p>

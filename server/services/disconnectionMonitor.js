@@ -6,6 +6,7 @@
 const Driver = require('../models/Driver');
 const MetroStation = require('../models/MetroStation');
 const RideRequest = require('../models/RideRequest');
+const { toAdminsAndExecutives } = require('../utils/adminRealtime');
 
 // Configuration
 const TIMEOUT_MINUTES = 30; // Remove driver after 30 minutes of disconnection
@@ -91,7 +92,7 @@ async function removeDriverFromQueue(driver) {
 
     // Notify admins via socket
     if (io) {
-      io.to('admins').emit('driverTimeoutRemoved', {
+      toAdminsAndExecutives(io, 'admins').emit('driverTimeoutRemoved', {
         driverId: driver._id,
         driverName: driver.fullName,
         driverPhone: driver.mobileNo,
@@ -102,7 +103,7 @@ async function removeDriverFromQueue(driver) {
       });
 
       // Also emit driver status change
-      io.to('admins').emit('driverStatusChanged', {
+      toAdminsAndExecutives(io, 'admins').emit('driverStatusChanged', {
         driverId: driver._id,
         driverName: driver.fullName,
         isOnline: false,

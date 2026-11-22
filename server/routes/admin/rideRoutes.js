@@ -7,6 +7,7 @@ const PickupLocation = require('../../models/PickupLocation');
 const { adminProtect } = require('../../middleware/auth');
 const { checkPermission, PERMISSIONS } = require('../../middleware/permissions');
 const { notifyAdmins } = require('../../socket');
+const { isExecutive, boothCondition } = require('../../utils/podScope');
 
 // Apply admin protection to all routes
 router.use(adminProtect);
@@ -41,6 +42,13 @@ router.get('/', checkPermission(PERMISSIONS.RIDES_VIEW), async (req, res) => {
       ];
     }
     
+    // An executive only ever sees the rides of their own pickup point, whatever booth the screen asks for
+    const scoped = isExecutive(req.admin);
+    if (scoped) {
+      delete filter.$or;
+      Object.assign(filter, boothCondition(req.admin, 'pickupLocation.boothName'));
+    }
+
     // Filter by status if specified
     if (status && status !== 'all') {
       filter.status = status;
@@ -116,6 +124,9 @@ router.get('/', checkPermission(PERMISSIONS.RIDES_VIEW), async (req, res) => {
       historyFilter.$or = [
         { 'pickupLocation.boothName': filter.$or[0].pickupLocation || filter.$or[0]['pickupLocation.boothName'] }
       ];
+    }
+    if (scoped) {
+      Object.assign(historyFilter, boothCondition(req.admin, 'pickupLocation.boothName'));
     }
     if (filter.status) {
       // Map status to RideHistory status

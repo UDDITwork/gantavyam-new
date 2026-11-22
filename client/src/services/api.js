@@ -901,6 +901,67 @@ export const admin = {
       console.error('Restore fare config error:', error);
       throw error;
     }
+  },
+
+  // ============================================
+  // PICKUP POINTS & EXECUTIVES (sub-admins of one pickup point)
+  // ============================================
+
+  // Pickup points (pods) the logged-in admin may work with: admins get both, an executive only their own.
+  // The request interceptor adds no token to URLs containing '/pickup-locations' (they are public for riders and
+  // drivers), so the admin token is attached explicitly here.
+  getPickupLocations: async () => {
+    try {
+      const token = getToken('/admin');
+      const response = await apiClient.get('/admin/pickup-locations', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Get pickup locations error:', (error && error.message) || (error && error.status ? `status ${error.status}` : 'request failed'));
+      throw error;
+    }
+  },
+
+  // Executives (admins only): { name, email, password, assignedPickupLocation: 'HK' | 'PC' }
+  getExecutives: async () => {
+    try {
+      const response = await apiClient.get('/admin/executives');
+      return response.data;
+    } catch (error) {
+      console.error('Get executives error:', (error && error.message) || (error && error.status ? `status ${error.status}` : 'request failed'));
+      throw error;
+    }
+  },
+
+  createExecutive: async (data) => {
+    try {
+      const response = await apiClient.post('/admin/executives', data);
+      return response.data;
+    } catch (error) {
+      console.error('Create executive error:', (error && error.message) || (error && error.status ? `status ${error.status}` : 'request failed'));
+      throw error;
+    }
+  },
+
+  updateExecutive: async (id, data) => {
+    try {
+      const response = await apiClient.put(`/admin/executives/${id}`, data);
+      return response.data;
+    } catch (error) {
+      console.error('Update executive error:', (error && error.message) || (error && error.status ? `status ${error.status}` : 'request failed'));
+      throw error;
+    }
+  },
+
+  deleteExecutive: async (id) => {
+    try {
+      const response = await apiClient.delete(`/admin/executives/${id}`);
+      return response.data;
+    } catch (error) {
+      console.error('Delete executive error:', (error && error.message) || (error && error.status ? `status ${error.status}` : 'request failed'));
+      throw error;
+    }
   }
 };
 

@@ -10,6 +10,7 @@ const RideRequest = require('../models/RideRequest');
 const User = require('../models/User');
 const Driver = require('../models/Driver');
 const MetroStation = require('../models/MetroStation');
+const { toAdmins } = require('../utils/adminRealtime');
 const { getIO, broadcastRideRequest } = require('../socket');
 const { generateRideId, generateRideOTPs } = require('../utils/otpUtils');
 const { logRideEvent, logUserAction } = require('../utils/rideLogger');
@@ -400,7 +401,7 @@ router.post('/:rideId/accept', auth, async (req, res) => {
       });
 
       // Notify admins
-      io.to('admins').emit('rideAccepted', {
+      toAdmins(io, 'admins', rideRequest.pickupLocation?.boothName).emit('rideAccepted', {
         rideId: rideRequest._id.toString(),
         uniqueRideId: rideRequest.rideId,
         driverName: driver.fullName,

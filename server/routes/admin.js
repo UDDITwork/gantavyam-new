@@ -16,6 +16,7 @@ const {
 } = require('../controllers/adminController');
 const jwt = require('jsonwebtoken');
 const Admin = require('../models/Admin');
+const { publicPodOf } = require('../utils/podScope');
 
 // Import specialized admin routes
 const queueRoutes = require('./admin/queueRoutes');
@@ -25,6 +26,8 @@ const driverInfoRecoveryRoutes = require('./admin/driverInfoRecovery');
 const manualBookingRoutes = require('./admin/manualBookingRoutes');
 const fareManagementRoutes = require('./admin/fareManagement');
 const financialRoutes = require('./admin/financialRoutes');
+const executiveRoutes = require('./admin/executiveRoutes');
+const { listPods, publicPod } = require('../config/pickupPods');
 const twilioSmsService = require('../services/twilioSmsService');
 const RideRequest = require('../models/RideRequest');
 
@@ -41,7 +44,15 @@ router.get('/users/:id', adminProtect, checkPermission(PERMISSIONS.USERS_VIEW), 
 // Approve/reject driver
 router.put('/drivers/:id/verify', adminProtect, checkPermission(PERMISSIONS.DRIVERS_VERIFY), verifyDriver);
 
+// The pickup points the caller can work with: admins both, an executive only their own
+router.get('/pickup-locations', adminProtect, (req, res) => {
+  const { isExecutive, podOf } = require('../utils/podScope');
+  const pods = isExecutive(req.admin) ? [podOf(req.admin)].filter(Boolean) : listPods();
+  res.json({ success: true, data: pods.map(publicPod) });
+});
+
 // Specialized admin routes
+router.use('/executives', executiveRoutes);
 router.use('/queue', queueRoutes);
 router.use('/rides', rideRoutes);
 router.use('/ride-tools', rideManagementTools);
@@ -84,13 +95,16 @@ router.delete('/drivers/:id', adminProtect, checkPermission(PERMISSIONS.DRIVERS_
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
   try {
-    const admin = await Admin.findOne({ email }).select('+password');
+    const admin = await Admin.findByEmail(email);
     if (!admin) {
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
     const isMatch = await admin.matchPassword(password);
     if (!isMatch) {
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    }
+    if (admin.isActive === false) {
+      return res.status(403).json({ success: false, error: 'This account has been deactivated. Please contact the admin.' });
     }
     console.log('Admin found:', { id: admin._id, email: admin.email, name: admin.name });
     
@@ -116,7 +130,9 @@ router.post('/login', async (req, res) => {
         email: admin.email,
         name: admin.name,
         role: admin.role,
-        permissions: admin.permissions
+        permissions: admin.permissions,
+        assignedPickupLocation: admin.assignedPickupLocation || null,
+        pod: publicPodOf(admin)
       }
     });
   } catch (err) {
