@@ -221,6 +221,11 @@ const rideRequestSchema = new mongoose.Schema({
     ref: 'Driver'
   },
   targetDriverName: String,
+  // When the driver's app confirmed it received the request (null = it may not have reached the driver yet)
+  driverNotifiedAt: {
+    type: Date,
+    default: null
+  },
 
   // Fleet Manager workflow fields
   submittedToFmAt: {

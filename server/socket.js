@@ -14,6 +14,7 @@ const { generateQueueNumber, updateQueuePosition, removeFromQueue } = require('.
 const RideLifecycleService = require('./services/rideLifecycle');
 const EnhancedNotificationService = require('./utils/enhancedNotification');
 const RideCompletionService = require('./utils/rideCompletionService');
+const { buildDriverRidePayload, markDriverNotified, collectDeliverableRequests } = require('./utils/driverRequestDelivery');
 
 let io;
 let enhancedNotificationService;
@@ -21,6 +22,36 @@ let rideCompletionService;
 
 // Track connected clients by user ID
 const connectedClients = new Map();
+
+// Sends a driver's socket every request assigned to that driver that should be on their screen: requests that
+// never reached them (with a fresh response window) and requests still counting down. Called when the driver
+// connects, reconnects or asks for a refresh, so a missed push is never lost.
+// `onlyUnconfirmed` skips requests this socket has already acknowledged (used for the automatic delivery that
+// follows a connection, so it does not repeat what the driver's app already showed).
+const deliverPendingRequests = async (socket, reason, { onlyUnconfirmed = false } = {}) => {
+  try {
+    if (!socket.user || socket.user.role !== 'driver' || !socket.connected) return 0;
+    if (!socket.confirmedRequestIds) socket.confirmedRequestIds = new Set();
+
+    const rides = await collectDeliverableRequests(socket.user._id);
+    let sent = 0;
+    for (const ride of rides) {
+      const id = String(ride._id);
+      if (onlyUnconfirmed && socket.confirmedRequestIds.has(id)) continue;
+
+      socket.emit('newRideRequest', buildDriverRidePayload(ride), () => {
+        socket.confirmedRequestIds.add(id);
+        markDriverNotified(ride._id);
+      });
+      sent += 1;
+      console.log(`📬 [pending delivery: ${reason}] sent request ${ride.bookingId} to driver ${socket.user._id}`);
+    }
+    return sent;
+  } catch (error) {
+    console.error('❌ [pending delivery] failed:', error.message);
+    return 0;
+  }
+};
 
 // Broadcast state change to all relevant clients
 const broadcastStateChange = (eventType, data) => {
@@ -488,7 +519,11 @@ const initializeSocket = (server) => {
       methods: ["GET", "POST"],
       credentials: true
     },
-    transports: ['websocket', 'polling']
+    transports: ['websocket', 'polling'],
+    // Notice a dead connection (phone locked, network switched) within about 18 seconds instead of 45,
+    // so a request is never "delivered" to a connection that is already gone
+    pingInterval: 10000,
+    pingTimeout: 8000
   });
 
   // Track connection attempts by IP to prevent spam
@@ -774,6 +809,12 @@ const initializeSocket = (server) => {
       // Log all driver connections
       const driversRoom = io.sockets.adapter.rooms.get('drivers');
       console.log(`Total drivers online: ${driversRoom ? driversRoom.size : 0}`);
+
+      // Hand over any request that was assigned while this driver was disconnected. It is sent at once and
+      // once more after 2.5 s in case the driver app had not attached its listeners yet (a page that is still
+      // loading); requests the app already confirmed are not sent again.
+      setTimeout(() => deliverPendingRequests(socket, 'connect', { onlyUnconfirmed: true }), 300);
+      setTimeout(() => deliverPendingRequests(socket, 'connect (retry)', { onlyUnconfirmed: true }), 2500);
     } else if (socket.user.role === 'admin') {
       socket.join('admins');
       socket.join('admin-room');
@@ -895,50 +936,12 @@ const initializeSocket = (server) => {
             console.log(`✅ Driver ${socket.user._id} already online in database`);
           }
 
-          // PART 9 FIX: Check for pending manual booking requests targeted at this driver
-          // This ensures driver sees any requests sent while they were disconnected
-          try {
-            const RideRequest = require('./models/RideRequest');
-            const pendingRequests = await RideRequest.find({
-              targetDriverId: socket.user._id,
-              status: 'pending',
-              bookingSource: 'manual',
-              expiresAt: { $gt: new Date() }  // Not expired yet
-            }).lean();
-
-            if (pendingRequests.length > 0) {
-              console.log(`[driverRoomRejoin] 📬 Found ${pendingRequests.length} pending manual booking(s) for driver ${driver.fullName}`);
-
-              for (const request of pendingRequests) {
-                // Send each pending request to the driver
-                socket.emit('newRideRequest', {
-                  _id: request._id,
-                  rideId: request._id,
-                  bookingId: request.bookingId,
-                  pickupLocation: request.pickupLocation,
-                  dropLocation: request.dropLocation,
-                  vehicleType: request.vehicleType,
-                  driverFare: request.driverFare,
-                  estimatedFare: request.estimatedFare,
-                  userName: request.userName,
-                  userPhone: request.userPhone,
-                  startOTP: request.startOTP,
-                  endOTP: request.endOTP,
-                  status: 'pending',
-                  isManualBooking: true,
-                  bookingSource: 'manual',
-                  queueNumber: request.queueNumber,
-                  expiresAt: request.expiresAt
-                });
-
-                console.log(`[driverRoomRejoin] ✅ Sent pending request ${request.bookingId} to driver ${driver.fullName}`);
-              }
-            } else {
-              console.log(`[driverRoomRejoin] No pending manual bookings for driver ${driver.fullName}`);
-            }
-          } catch (pendingError) {
-            console.error('[driverRoomRejoin] Error fetching pending requests:', pendingError);
-          }
+          // Hand the driver every request assigned to them that they have not seen (or that is still counting
+          // down): both direct manual bookings ("pending") and Fleet Manager assignments ("pending_fm").
+          // The driver app asked for this explicitly, so requests are sent even if already confirmed on this
+          // connection; the app ignores duplicates.
+          const sentCount = await deliverPendingRequests(socket, 'rejoin');
+          console.log(`[driverRoomRejoin] ${sentCount} pending request(s) sent to driver ${driver.fullName}`);
         }
 
         // Verify room membership after joining
@@ -3527,212 +3530,137 @@ const getServices = () => ({
   io
 });
 
-// Function to send ride request to specific driver only
+// Function to send a ride request to one specific driver (direct manual bookings and Fleet Manager assignments).
+// Returns success: true only when the driver's app confirmed that it received the request. If it did not
+// (driver disconnected, or a stale connection that never answered) the request stays assigned to the driver and
+// is delivered as soon as their app is connected again (see deliverPendingRequests), so callers treat
+// success: false as "queued, waiting for the driver", not as a lost request.
 const sendRideRequestToDriver = async (rideRequest, driverId) => {
   console.log('\n=== SENDING RIDE REQUEST TO SPECIFIC DRIVER ===');
   console.log('Ride ID:', rideRequest._id);
   console.log('Target Driver ID:', driverId);
   console.log('Pickup:', rideRequest.pickupLocation?.boothName);
   console.log('Vehicle Type:', rideRequest.vehicleType);
-  
+
   const io = getIO();
   if (!io) {
     console.error('❌ Socket.IO not initialized');
-    return { 
-      success: false, 
+    return {
+      success: false,
       error: 'Socket service not available',
       driverNotified: false
     };
   }
 
   try {
-    // Prepare ride data for the driver
-    const rideData = {
-      _id: rideRequest._id,
-      rideId: rideRequest.rideId,
-      bookingId: rideRequest.bookingId,
-      pickupLocation: {
-        boothName: rideRequest.pickupLocation.boothName,
-        latitude: rideRequest.pickupLocation.latitude,
-        longitude: rideRequest.pickupLocation.longitude
-      },
-      dropLocation: {
-        address: rideRequest.dropLocation.address,
-        latitude: rideRequest.dropLocation.latitude,
-        longitude: rideRequest.dropLocation.longitude
-      },
-      vehicleType: rideRequest.vehicleType,
-      // Drivers see only their earning (driverFare), never customerTotalFare
-      driverFare: rideRequest.driverFare || rideRequest.fare || 0,
-      estimatedFare: rideRequest.driverFare || rideRequest.fare || 0,
-      fare: rideRequest.driverFare || rideRequest.fare || 0,
-      distance: rideRequest.distance,
-      startOTP: rideRequest.startOTP,
-      endOTP: rideRequest.endOTP,
-      userName: rideRequest.userName,
-      userPhone: rideRequest.userPhone,
-      status: 'pending',
-      timestamp: rideRequest.timestamp || new Date(),
-      isManualBooking: true,
-      bookingSource: 'manual',
-      queueNumber: rideRequest.queueNumber,
-      expiresAt: rideRequest.expiresAt,  // For countdown timer on driver dashboard
-    };
-
-    // Convert driverId to string for comparison
+    const rideData = buildDriverRidePayload(rideRequest);
     const driverIdString = driverId.toString();
     const driverRoom = `driver_${driverIdString}`;
-    
-    // Function to find driver socket
-    const findDriverSocket = () => {
-      const allSockets = io.sockets.sockets;
-      for (const [socketId, socket] of allSockets) {
-        if (socket.user && 
-            socket.user._id.toString() === driverIdString && 
-            socket.user.role === 'driver') {
-          return socket;
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    // Every live connection of this driver (briefly a driver can have a stale and a fresh one at once)
+    const findDriverSockets = () => {
+      const found = [];
+      for (const [, socket] of io.sockets.sockets) {
+        if (socket.user && socket.user.role === 'driver' && socket.user._id.toString() === driverIdString) {
+          found.push(socket);
         }
       }
-      return null;
+      return found;
     };
 
-    // Function to send ride request with retry
-    const sendWithRetry = async (retries = 3, delay = 1000) => {
-      for (let attempt = 1; attempt <= retries; attempt++) {
-        console.log(`\n📤 Attempt ${attempt}/${retries} to send ride request to driver ${driverIdString}`);
-        
-        // Try to find driver socket
-        const driverSocket = findDriverSocket();
-        
-        if (driverSocket) {
-          console.log(`✅ Found driver socket ${driverSocket.id}`);
-          
-          // Ensure driver is in their room
-          const rooms = Array.from(driverSocket.rooms);
-          if (!rooms.includes(driverRoom)) {
-            console.log(`⚠️ Driver not in room ${driverRoom}, joining now...`);
-            driverSocket.join(driverRoom);
-            // Small delay to ensure room join is processed
-            await new Promise(resolve => setTimeout(resolve, 100));
-          }
-          
-          // Send via both methods for reliability
-          console.log(`📨 Sending ride request via direct socket and room...`);
-          
-          // Direct socket emission with acknowledgment
-          // Use different event for manual bookings that should auto-accept
-          const eventName = 'newRideRequest'; // Manual bookings now use same event as online
-          console.log(`📨 Emitting ${eventName} event to driver`);
-          
-          const directSent = await new Promise((resolve) => {
-            const timeout = setTimeout(() => resolve(false), 5000);
-            
-            driverSocket.emit(eventName, rideData, (ack) => {
-              clearTimeout(timeout);
-              console.log('✅ Driver acknowledged ride request:', ack);
-              resolve(true);
-            });
-          });
-          
-          // Only emit to room if direct emission failed or wasn't acknowledged
-          if (!directSent) {
-            console.log('⚠️ Direct emission failed, using room broadcast as fallback');
-            io.to(driverRoom).emit(eventName, rideData);
-          }
-          
-          // Verify room size after sending
-          const roomSize = io.sockets.adapter.rooms.get(driverRoom)?.size || 0;
-          console.log(`📊 Driver room ${driverRoom} has ${roomSize} connections`);
-          
-          return {
-            success: true,
-            driverNotified: true,
-            driverId: driverIdString,
-            method: directSent ? 'direct_socket_acknowledged' : 'room_broadcast',
-            driverSocketFound: true,
-            roomSize: roomSize,
-            attempt: attempt
-          };
-        } else {
-          console.log(`⚠️ Driver socket not found on attempt ${attempt}`);
-          
-          // Check if driver might be reconnecting
-          if (attempt < retries) {
-            console.log(`⏳ Waiting ${delay}ms before retry...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            delay *= 1.5; // Exponential backoff
-          }
-        }
-      }
-      
-      // All retries failed
-      return null;
-    };
-
-    // Log all connected sockets for debugging
-    console.log('\n🔍 DEBUGGING: All connected sockets:');
-    const allSockets = io.sockets.sockets;
-    let driverSocketsFound = 0;
-    for (const [socketId, socket] of allSockets) {
-      if (socket.user) {
-        console.log(`   Socket ${socketId}:`);
-        console.log(`     - user._id: ${socket.user._id} (type: ${typeof socket.user._id})`);
-        console.log(`     - role: ${socket.user.role}`);
-        console.log(`     - fullName: ${socket.user.fullName}`);
-        console.log(`     - vehicleType: ${socket.user.vehicleType}`);
-        console.log(`     - currentMetroBooth: ${socket.user.currentMetroBooth}`);
-        console.log(`     - Comparing with target: ${socket.user._id.toString() === driverIdString ? '✅ MATCH' : '❌ NO MATCH'}`);
-        
-        if (socket.user.role === 'driver') {
-          driverSocketsFound++;
-          console.log(`      -> Driver socket, rooms:`, Array.from(socket.rooms));
-        }
-      }
-    }
-    console.log(`   Total driver sockets found: ${driverSocketsFound}`);
-    console.log(`   Looking for driver ID: ${driverIdString}`);
-    
-    // Try to send with retry logic
-    const result = await sendWithRetry();
-    
-    if (result && result.success) {
-      console.log(`✅ Successfully sent ride request to driver after ${result.attempt} attempt(s)`);
-      
-      // Notify admin room
-      io.to('admin-room').emit('manualBookingSentToDriver', {
-        rideId: rideRequest._id,
-        bookingId: rideRequest.bookingId,
-        driverId: driverIdString,
-        status: 'pending',
-        timestamp: new Date(),
-        attempt: result.attempt
-      });
-      
-      return result;
-    } else {
-      console.error(`❌ Failed to send ride request to driver ${driverIdString} after all retries`);
-      
-      // Notify admin room of failure
-      io.to('admin-room').emit('manualBookingFailedToSend', {
-        rideId: rideRequest._id,
-        bookingId: rideRequest.bookingId,
-        driverId: driverIdString,
-        error: 'Driver not online or not reachable',
-        timestamp: new Date()
-      });
-      
-      return {
-        success: false,
-        error: 'Driver not online - could not establish connection after retries',
-        driverNotified: false,
-        driverId: driverIdString
+    // Sends to all of them; true as soon as one driver app confirms, false when nobody confirms in time
+    const sendAndWaitForConfirmation = (sockets, timeoutMs) => new Promise((resolve) => {
+      let settled = false;
+      const finish = (confirmed) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(confirmed);
       };
+      const timer = setTimeout(() => finish(false), timeoutMs);
+
+      for (const socket of sockets) {
+        if (!socket.rooms.has(driverRoom)) socket.join(driverRoom);
+        if (!socket.confirmedRequestIds) socket.confirmedRequestIds = new Set();
+        socket.emit('newRideRequest', rideData, (ack) => {
+          console.log('✅ Driver acknowledged ride request:', ack);
+          socket.confirmedRequestIds.add(String(rideRequest._id));
+          finish(true);
+        });
+      }
+    });
+
+    // A driver that is a moment away from reconnecting gets two more chances before we give up waiting
+    const waitsBeforeAttempt = [0, 1000, 1500];
+    let liveConnections = 0;
+    for (let attempt = 1; attempt <= waitsBeforeAttempt.length; attempt++) {
+      if (waitsBeforeAttempt[attempt - 1]) await sleep(waitsBeforeAttempt[attempt - 1]);
+
+      const sockets = findDriverSockets();
+      console.log(`📤 Attempt ${attempt}/${waitsBeforeAttempt.length}: ${sockets.length} live connection(s) for driver ${driverIdString}`);
+      if (sockets.length === 0) continue;
+
+      liveConnections = sockets.length;
+      const confirmed = await sendAndWaitForConfirmation(sockets, 4000);
+      if (confirmed) {
+        await markDriverNotified(rideRequest._id);
+        const roomSize = io.sockets.adapter.rooms.get(driverRoom)?.size || 0;
+        console.log(`✅ Ride request delivered to driver ${driverIdString} (attempt ${attempt}, ${roomSize} connection(s) in ${driverRoom})`);
+
+        io.to('admin-room').emit('manualBookingSentToDriver', {
+          rideId: rideRequest._id,
+          bookingId: rideRequest.bookingId,
+          driverId: driverIdString,
+          status: 'pending',
+          timestamp: new Date(),
+          attempt
+        });
+
+        return {
+          success: true,
+          driverNotified: true,
+          driverId: driverIdString,
+          method: 'direct_socket_acknowledged',
+          driverSocketFound: true,
+          roomSize,
+          attempt
+        };
+      }
+
+      // Connections exist but none answered: they are stale (the real device is gone or reconnecting).
+      // Waiting longer here would not help, the request is delivered when the app reconnects.
+      console.warn(`⚠️ ${liveConnections} connection(s) found for driver ${driverIdString} but none confirmed the request`);
+      break;
     }
+
+    console.warn(`⏳ Ride request ${rideRequest.bookingId} is waiting for driver ${driverIdString} to reconnect`);
+    const reason = liveConnections > 0
+      ? 'Driver app is not reachable (no confirmation) - the request will be delivered when it reconnects'
+      : 'Driver not online - not reachable right now; the request will be delivered when the driver reconnects';
+
+    io.to('admin-room').emit('manualBookingFailedToSend', {
+      rideId: rideRequest._id,
+      bookingId: rideRequest.bookingId,
+      driverId: driverIdString,
+      error: 'Driver not online or not reachable',
+      willRetryOnReconnect: true,
+      timestamp: new Date()
+    });
+
+    return {
+      success: false,
+      driverNotified: false,
+      queued: true,
+      driverSocketFound: liveConnections > 0,
+      driverId: driverIdString,
+      error: reason
+    };
 
   } catch (error) {
     console.error('❌ Error sending ride request to driver:', error);
-    return { 
-      success: false, 
+    return {
+      success: false,
       error: error.message,
       driverNotified: false
     };

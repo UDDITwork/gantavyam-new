@@ -120,9 +120,10 @@ class SocketService {
         this.socket = io(this.serverUrl, {
           auth: { token },
           reconnection: true,
-          reconnectionAttempts: isProduction ? 10 : this.reconnectionAttempts,
+          // Never give up: a backend redeploy or a long network gap must not leave a driver silently disconnected
+          reconnectionAttempts: Infinity,
           reconnectionDelay: this.reconnectionDelay,
-          reconnectionDelayMax: isProduction ? 10000 : 5000,
+          reconnectionDelayMax: 5000,
           timeout: isProduction ? 30000 : 10000,
           transports: isProduction ? ['polling', 'websocket'] : ['websocket', 'polling'],
           upgrade: true,

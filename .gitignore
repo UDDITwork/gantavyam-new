@@ -185,3 +185,5 @@ claude.json
 
 # Temporary or invalid files
 --cwd 
+# private seed data (real driver details): never commit
+server/seed-data/

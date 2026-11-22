@@ -645,8 +645,16 @@ const ModernDriverDashboard = () => {
             }
           });
           
-          setAssignedRides(prev => [newRide, ...prev]);
-          
+          // The server can send the same request again (reconnect, refresh): keep one card per ride and take
+          // over the newest expiry time
+          setAssignedRides(prev => {
+            const id = String(newRide._id);
+            if (prev.some(r => String(r._id) === id)) {
+              return prev.map(r => (String(r._id) === id ? { ...r, expiresAt: newRide.expiresAt } : r));
+            }
+            return [newRide, ...prev];
+          });
+
           // Show notification
           if ('Notification' in window && Notification.permission === 'granted') {
             new Notification('🚕 New Ride Request!', {

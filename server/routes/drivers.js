@@ -18,6 +18,7 @@ const { logDriverAction } = require('../utils/rideLogger');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { getIO } = require('../socket');
+const { collectDeliverableRequests } = require('../utils/driverRequestDelivery');
 
 // Rate limiter for duplicate check endpoints (prevent enumeration attacks)
 const duplicateCheckLimiter = rateLimit({
@@ -1545,27 +1546,22 @@ router.get('/pending-rides', protect, async (req, res) => {
     const RideRequest = require('../models/RideRequest');
     const mongoose = require('../db');
 
-    const pendingRides = await RideRequest.find({
-      $or: [
-        // Broadcast rides (non-manual) that match driver's vehicle type
-        {
-          status: 'pending',
-          vehicleType: driver.vehicleType,
-          bookingSource: { $ne: 'manual' },
-          timestamp: { $gte: new Date(Date.now() - 30 * 60 * 1000) }
-        },
-        // Manual bookings specifically targeted to THIS driver (and not expired)
-        {
-          status: 'pending',
-          bookingSource: 'manual',
-          targetDriverId: new mongoose.Types.ObjectId(driverId),
-          expiresAt: { $gt: new Date() }  // Only if not expired yet
-        }
-      ]
+    // Broadcast rides (non-manual) that match the driver's vehicle type
+    const broadcastRides = await RideRequest.find({
+      status: 'pending',
+      vehicleType: driver.vehicleType,
+      bookingSource: { $ne: 'manual' },
+      timestamp: { $gte: new Date(Date.now() - 30 * 60 * 1000) }
     })
     .populate('userId', 'name phone')
     .sort({ timestamp: -1 })
     .limit(20); // Limit to prevent too many rides
+
+    // Manual and Fleet Manager bookings assigned to THIS driver: ones still counting down and ones that never
+    // reached the driver's screen (these get a fresh response window)
+    const assignedRides = await collectDeliverableRequests(driverId);
+
+    const pendingRides = [...assignedRides, ...broadcastRides].slice(0, 20);
 
     console.log(`Found ${pendingRides.length} pending rides for driver ${driverId}`);
 
