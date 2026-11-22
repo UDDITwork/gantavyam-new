@@ -8,6 +8,7 @@ import {
 import ModernCard from '../../components/admin/ModernCard';
 import { admin as adminAPI } from '../../services/api';
 import { PICKUP_PODS, getPodByKey } from '../../config/pickupPods';
+import { executiveLoginPath } from '../../config/executiveLogin';
 
 const MIN_PASSWORD_LENGTH = 8;
 const GENERATED_PASSWORD_LENGTH = 14;
@@ -329,12 +330,14 @@ const ExecutiveFormModal = ({ executive, pods, onClose, onSaved }) => {
 
       if (!isEdit || payload.password) {
         toast.success(isEdit ? 'Executive updated, new password set' : 'Executive created');
+        const chosenPod = pods.find((pod) => pod.key === podKey) || getPodByKey(podKey);
         setCredentials({
           created: !isEdit,
           name,
           email,
           password: form.password,
-          pod: podTitle(pods.find((pod) => pod.key === podKey) || getPodByKey(podKey))
+          pod: podTitle(chosenPod),
+          loginPath: executiveLoginPath(chosenPod)
         });
       } else {
         toast.success('Executive updated');
@@ -349,12 +352,13 @@ const ExecutiveFormModal = ({ executive, pods, onClose, onSaved }) => {
     }
   };
 
-  const loginUrl = `${window.location.origin}/admin/login`;
+  // Each pickup point's executive has their own login page
+  const loginUrl = `${window.location.origin}${(credentials && credentials.loginPath) || '/executive/login'}`;
 
   const handleCopyLogin = async () => {
     if (!credentials) return;
     const text = [
-      'Gantavyam admin panel login',
+      'Gantavyam executive login',
       `Login page: ${loginUrl}`,
       `E-mail: ${credentials.email}`,
       `Password: ${credentials.password}`,
@@ -797,6 +801,35 @@ const Executives = () => {
           Executives can only use Fleet Manager, Queue Management, Register Driver and Manual Booking, and only for their
           own pickup point.
         </p>
+      </div>
+
+      {/* The login pages of the executives */}
+      <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <p className="text-sm font-medium text-gray-800 mb-2">Executive login pages</p>
+        <ul className="space-y-2 text-sm">
+          {PICKUP_PODS.map((pod) => {
+            const path = executiveLoginPath(pod);
+            const url = `${window.location.origin}${path}`;
+            return (
+              <li key={pod.key} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="w-24 font-medium text-gray-700">{pod.shortName}</span>
+                <a href={path} target="_blank" rel="noreferrer" className="text-blue-600 underline break-all">{url}</a>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (await copyText(url)) toast.success('Login page copied');
+                    else toast.error('Could not copy. Select the address and copy it manually.');
+                  }}
+                  className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50"
+                >
+                  <FiCopy className="h-3 w-3" />
+                  Copy
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+        <p className="mt-2 text-xs text-gray-500">Executives log in on these pages. The admin login page is only for admins.</p>
       </div>
 
       {/* Load error */}

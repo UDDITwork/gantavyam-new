@@ -27,6 +27,7 @@ import FleetManager from './pages/admin/FleetManager';
 import Welcome from './pages/admin/Welcome';
 import Settings from './pages/admin/Settings';
 import Executives from './pages/admin/Executives';
+import ExecutiveLogin from './pages/admin/ExecutiveLogin';
 // Driver
 import ModernDriverDashboard from './components/driver/minimal/ModernDriverDashboard';
 import DriverLogin from './pages/driver/Login';
@@ -101,6 +102,9 @@ function App() {
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/admin/login" element={<AdminLogin />} />
+          {/* Executives (sub-admins of one pickup point) log in on their own pages */}
+          <Route path="/executive/login" element={<ExecutiveLogin />} />
+          <Route path="/executive/:podSlug/login" element={<ExecutiveLogin />} />
           <Route path="/admin" element={
             <ProtectedAdminRoute>
               <ExecutiveRouteGuard>
