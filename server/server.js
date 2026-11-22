@@ -93,6 +93,8 @@ async function startDatabase() {
 
   // Sync User indexes so the sparse unique index on email is correct
   await runTask('User indexes', () => require('./models/User').syncIndexes());
+  // Build the ride indexes now so the first admin request does not pay for them
+  await runTask('ride indexes', () => Promise.all([require('./models/RideRequest').syncIndexes(), require('./models/RideHistory').syncIndexes()]));
 
   // Print database statistics on startup
   Promise.resolve(printDriverStats()).catch((error) => logger.error('Driver statistics failed', { error: error.message }));

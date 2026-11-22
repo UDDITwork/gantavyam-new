@@ -202,5 +202,6 @@ UserSchema.statics.findByLogin = async function(identifier) {
 
 // Add geospatial index for favorites locations
 UserSchema.index({ 'favorites.location': '2dsphere' });
+UserSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model('User', UserSchema);

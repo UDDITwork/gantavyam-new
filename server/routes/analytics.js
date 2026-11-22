@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const protectUser = require('../middleware/userAuth');
-const { protect } = require('../middleware/auth');
+const { protect, adminProtect } = require('../middleware/auth');
 const RideLifecycleService = require('../services/rideLifecycle');
 const RideHistory = require('../models/RideHistory');
 const User = require('../models/User');
@@ -279,7 +279,7 @@ router.get('/ride/:rideId', protectUser, async (req, res) => {
 });
 
 // Get system-wide analytics (admin only)
-router.get('/system/overview', async (req, res) => {
+router.get('/system/overview', adminProtect, async (req, res) => {
   try {
     console.log('\n=== GET SYSTEM ANALYTICS ===');
     

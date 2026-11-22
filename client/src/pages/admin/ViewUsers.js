@@ -44,9 +44,9 @@ const ViewUsers = () => {
 
   useEffect(() => {
     const filtered = users.filter(user =>
-      user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.phone.includes(searchTerm)
+      (user.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (user.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (user.phone || '').includes(searchTerm)
     );
     setFilteredUsers(filtered);
     setCurrentPage(1);
@@ -56,7 +56,7 @@ const ViewUsers = () => {
     const csvContent = "data:text/csv;charset=utf-8," 
       + "Name,Email,Phone,Registered Date\n"
       + users.map(user => 
-          `${user.name},${user.email},${user.phone},${user.createdAt || 'N/A'}`
+          `${user.name || ''},${user.email || ''},${user.phone || ''},${user.createdAt || 'N/A'}`
         ).join('\n');
     
     const encodedUri = encodeURI(csvContent);

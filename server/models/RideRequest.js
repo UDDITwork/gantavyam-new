@@ -377,4 +377,10 @@ rideRequestSchema.index({ isManualBookingExpired: 1 });
 rideRequestSchema.index({ status: 1, submittedToFmAt: -1 }); // For FM open bookings query
 rideRequestSchema.index({ adminId: 1, status: 1 }); // For Admin pending list
 
+// Indexes for the admin dashboard counts, the ride list and the driver / rider screens
+rideRequestSchema.index({ createdAt: -1 });
+rideRequestSchema.index({ status: 1, createdAt: -1 });
+rideRequestSchema.index({ userId: 1 });
+rideRequestSchema.index({ driverId: 1, timestamp: -1 });
+
 module.exports = mongoose.model('RideRequest', rideRequestSchema); 

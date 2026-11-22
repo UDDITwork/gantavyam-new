@@ -48,7 +48,7 @@ for required in TURSO_DATABASE_URL TURSO_AUTH_TOKEN JWT_SECRET; do
 done
 
 # Plain settings are separated with "@" so ALLOWED_ORIGINS can contain commas
-ENV_VARS="NODE_ENV=production"
+ENV_VARS="NODE_ENV=production@NODE_OPTIONS=--max-old-space-size=768"
 [ -n "$ORIGINS" ] && ENV_VARS="${ENV_VARS}@ALLOWED_ORIGINS=${ORIGINS}"
 for name in CLOUDINARY_CLOUD_NAME TWILIO_ACCOUNT_SID TWILIO_PHONE_NUMBER; do
   [ -n "${!name:-}" ] && ENV_VARS="${ENV_VARS}@${name}=${!name}"
@@ -82,7 +82,7 @@ g run deploy "$SERVICE" \
   --region "$REGION" \
   --allow-unauthenticated \
   --port 8080 \
-  --cpu 1 --memory 512Mi \
+  --cpu 1 --memory 1Gi \
   --min-instances 1 --max-instances 1 \
   --no-cpu-throttling \
   --timeout 3600 \

@@ -132,14 +132,27 @@ router.get('/', checkPermission(PERMISSIONS.RIDES_VIEW), async (req, res) => {
       historyFilter['timestamps.requested'] = filter.createdAt;
     }
 
+    // The page that is shown only needs the newest (skip + limit) rows of each collection, so let the database
+    // sort and cut them instead of loading and populating the whole history on every request. (With a booth
+    // filter the old way is kept, because that filter cannot be pushed into the query.)
+    const rowsNeeded = parseInt(skip) + parseInt(limit);
+    const pageInDatabase = !filter.$or && Number.isFinite(rowsNeeded) && rowsNeeded > 0;
+
+    let activeQuery = RideRequest.find(filter);
+    let historyQuery = RideHistory.find(historyFilter);
+    if (pageInDatabase) {
+      activeQuery = activeQuery.sort({ createdAt: -1 }).limit(rowsNeeded);
+      historyQuery = historyQuery.sort({ 'timestamps.requested': -1 }).limit(rowsNeeded);
+    }
+
     // Query RideRequest (active rides)
-    const activeRidesPromise = RideRequest.find(filter)
+    const activeRidesPromise = activeQuery
       .populate('userId', 'name email phone')
       .populate('driverId', 'fullName name vehicleNumber phone vehicleNo mobileNo rating')
       .lean();
 
     // Query RideHistory (completed/cancelled rides)
-    const historyRidesPromise = RideHistory.find(historyFilter)
+    const historyRidesPromise = historyQuery
       .populate('userId', 'name email phone')
       .populate('driverId', 'fullName name vehicleNumber phone vehicleNo mobileNo rating')
       .lean();

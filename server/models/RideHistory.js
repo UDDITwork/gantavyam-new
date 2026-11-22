@@ -190,4 +190,13 @@ const rideHistorySchema = new mongoose.Schema({
   }
 });
 
+// Indexes for the admin screens, the financial reports and the driver / rider ride history
+rideHistorySchema.index({ createdAt: -1 });
+rideHistorySchema.index({ status: 1, createdAt: -1 });
+rideHistorySchema.index({ status: 1, 'timestamps.requested': -1 });
+rideHistorySchema.index({ userId: 1, createdAt: -1 });
+rideHistorySchema.index({ driverId: 1, createdAt: -1 });
+rideHistorySchema.index({ 'timestamps.requested': -1 });
+rideHistorySchema.index({ 'pickupLocation.boothName': 1, createdAt: -1 });
+
 module.exports = mongoose.model('RideHistory', rideHistorySchema); 
