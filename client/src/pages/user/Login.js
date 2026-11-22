@@ -67,15 +67,15 @@ const UserLogin = () => {
       }
     } catch (err) {
       setIsLoading(false);
-      // Improved error handling
-      if (err.response && err.response.status === 401) {
-        setError('Invalid phone number or password. Please try again.');
-      } else if (err.response && err.response.status === 400) {
-        setError('Bad request. Please check your input.');
-      } else if (err.response && err.response.data && err.response.data.message) {
-        setError(err.response.data.message);
-      } else if (err.message === 'Network Error') {
+      // services/api.js rejects with { error, status }, where error is the server's message
+      const status = err.status || (err.response && err.response.status);
+      const serverMessage = err.error || (err.response && err.response.data && err.response.data.message);
+      if (status === 401) {
+        setError('Invalid phone number, email or password. Please try again.');
+      } else if (serverMessage === 'Network Error' || err.message === 'Network Error') {
         setError('Network error: Please check your connection or server.');
+      } else if (serverMessage) {
+        setError(serverMessage);
       } else {
         setError('Login failed. Please try again.');
       }
@@ -93,14 +93,14 @@ const UserLogin = () => {
         {error && <div className="bg-red-100 text-red-700 px-4 py-2 rounded mb-4 border-l-4 border-red-500 text-sm">{error}</div>}
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label htmlFor="phone" className="block text-gray-700 font-medium mb-1">Phone Number</label>
+            <label htmlFor="phone" className="block text-gray-700 font-medium mb-1">Phone Number or Email</label>
             <input
               type="text"
               id="phone"
               name="phone"
               value={formData.phone}
               onChange={handleChange}
-              placeholder="Enter your phone number"
+              placeholder="Enter your phone number or email"
               required
               className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
             />

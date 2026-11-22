@@ -170,7 +170,7 @@ const UserSchema = new mongoose.Schema({
 // Encrypt password using bcrypt
 UserSchema.pre('save', async function(next) {
   if (!this.isModified('password')) {
-    next();
+    return next(); // without the return the hash below would hash the stored hash again
   }
 
   const salt = await bcrypt.genSalt(10);
@@ -181,6 +181,23 @@ UserSchema.pre('save', async function(next) {
 // Match user entered password to hashed password in database
 UserSchema.methods.matchPassword = async function(enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
+};
+
+// Finds the user for a login. The identifier is a phone number or an e-mail address (matched without
+// regard to letter case). The password hash is included so the caller can check the password.
+UserSchema.statics.findByLogin = async function(identifier) {
+  const login = String(identifier || '').trim();
+  if (!login) return null;
+
+  if (!login.includes('@')) {
+    return this.findOne({ phone: login }).select('+password');
+  }
+
+  // Exact match first (uses the index), then ignoring case for e-mails stored as typed at sign-up
+  const exact = await this.findOne({ email: login }).select('+password');
+  if (exact) return exact;
+  const escaped = login.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return this.findOne({ email: { $regex: `^${escaped}$`, $options: 'i' } }).select('+password');
 };
 
 // Add geospatial index for favorites locations

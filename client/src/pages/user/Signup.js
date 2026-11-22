@@ -18,7 +18,8 @@ const UserSignup = () => {
       setMessage('Signup successful! Please login.');
       navigate('/user/login');
     } catch (err) {
-      setMessage('Signup failed. Try again.');
+      // services/api.js rejects with { error, status }, where error is the server's message
+      setMessage(err.error || 'Signup failed. Try again.');
     }
   };
 

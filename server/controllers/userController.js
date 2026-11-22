@@ -71,10 +71,10 @@ exports.registerUser = async (req, res) => {
       message: 'User registered successfully'
     });
   } catch (err) {
-    logger.error('Registration error', { 
-      error: err.message, 
-      stack: err.stack,
-      body: req.body 
+    // The request body is not logged: it holds the password
+    logger.error('Registration error', {
+      error: err.message,
+      stack: err.stack
     });
     res.status(500).json({
       success: false,
@@ -85,18 +85,27 @@ exports.registerUser = async (req, res) => {
 
 exports.userLogin = async (req, res) => {
   try {
-    const { phone, password } = req.body;
-    
-    logger.info('User login attempt', { phone });
-    
-    // Find the user by phone - explicitly select password field
-    const user = await User.findOne({ phone }).select('+password');
+    // The login form has one box for the phone number or the e-mail address and sends it as "phone"
+    const { identifier, phone, email, password } = req.body;
+    const login = String(identifier || phone || email || '').trim();
+
+    logger.info('User login attempt', { login });
+
+    if (!login || typeof password !== 'string' || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter your phone number (or email) and your password.'
+      });
+    }
+
+    // Find the user by phone number or e-mail - the password field is included
+    const user = await User.findByLogin(login);
 
     if (!user) {
-      logger.warn('Login failed - user not found', { phone });
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid phone number or password. Please try again.' 
+      logger.warn('Login failed - user not found', { login });
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid phone number, email or password. Please try again.'
       });
     }
 
@@ -117,10 +126,10 @@ exports.userLogin = async (req, res) => {
     }
     
     if (!isMatch) {
-      logger.warn('Login failed - password mismatch', { phone, userId: user._id });
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid phone number or password. Please try again.' 
+      logger.warn('Login failed - password mismatch', { login, userId: user._id });
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid phone number, email or password. Please try again.'
       });
     }
 
@@ -138,10 +147,10 @@ exports.userLogin = async (req, res) => {
     user.lastLogin = Date.now();
     await user.save();
     
-    logger.info('User login successful', { 
-      userId: user._id, 
-      name: user.name, 
-      phone 
+    logger.info('User login successful', {
+      userId: user._id,
+      name: user.name,
+      login
     });
 
     // Prepare user data to return (excluding password)
@@ -160,10 +169,10 @@ exports.userLogin = async (req, res) => {
       user: userData
     });
   } catch (err) {
-    logger.error('Login error', { 
-      error: err.message, 
-      stack: err.stack,
-      body: req.body 
+    // The request body is not logged: it holds the password
+    logger.error('Login error', {
+      error: err.message,
+      stack: err.stack
     });
     res.status(500).json({ 
       success: false, 
