@@ -23,6 +23,7 @@ const RideHistory = require('../../models/RideHistory');
 const DriverOnlineRequest = require('../../models/DriverOnlineRequest');
 const { ensurePickupLocations } = require('../../seeders/fixedPickupLocation');
 const { initializeSocket, getIO, notifyAdmins } = require('../../socket');
+const { registerDriver } = require('../../controllers/driverController');
 
 const HK = 'Hauz Khas Metro Gate No 1';
 const PC = 'Patel Chowk Metro Station';
@@ -553,6 +554,56 @@ describe('live updates are split by pod', () => {
     const removal = await waitFor(() => eventsOf(pcExec, 'adminRemoveFromQueueResult')[0]);
     assert.ok(removal && removal.success, JSON.stringify(removal));
     assert.equal((await Driver.findById(data.pcNewDriver._id)).inQueue, false);
+  });
+});
+
+describe('drivers registered by an executive', () => {
+  // Calls the registration handler the way the route does (the uploads are already stored: uploadResults)
+  const register = (admin, n) => new Promise((resolve) => {
+    const req = {
+      admin,
+      files: { aadhaarPhotoFront: [{}] },
+      uploadResults: {
+        aadhaarPhotoFront: '/uploads/a.jpg', aadhaarPhotoBack: '/uploads/b.jpg', driverSelfie: '/uploads/s.jpg',
+        registrationCertificatePhoto: '/uploads/r.jpg', drivingLicensePhoto: '/uploads/d.jpg'
+      },
+      body: {
+        fullName: `Registered Driver ${n}`, mobileNo: `97000000${n}`, aadhaarNo: `3000000000${n}`, vehicleNo: `DL1RG00${n}`,
+        drivingLicenseNo: `DL-R-${n}`, password: 'driverpass1',
+        accountHolderName: 'Test', accountNumber: '123456789012', ifscCode: 'SBIN0001234', bankName: 'Test Bank'
+      }
+    };
+    const res = {
+      statusCode: 200,
+      status(code) { this.statusCode = code; return this; },
+      json(payload) { resolve({ status: this.statusCode, json: payload }); return this; }
+    };
+    registerDriver(req, res);
+  });
+
+  it('are verified at once, so they can log in and go online without waiting for an admin', async () => {
+    for (const [admin, n] of [[{ role: 'executive-manager', assignedPickupLocation: 'HK' }, '11'], [{ role: 'executive-manager', assignedPickupLocation: 'PC' }, '12']]) {
+      const result = await register(admin, n);
+      assert.equal(result.status, 201, JSON.stringify(result.json));
+      assert.equal((await Driver.findOne({ mobileNo: `97000000${n}` })).isVerified, true);
+    }
+  });
+
+  it('still wait for an admin to verify them when an admin registers them, or when they sign up themselves', async () => {
+    const byAdmin = await register({ role: 'admin' }, '13');
+    assert.equal(byAdmin.status, 201, JSON.stringify(byAdmin.json));
+    assert.equal((await Driver.findOne({ mobileNo: '9700000013' })).isVerified, false);
+
+    const selfSignup = await register(undefined, '14');
+    assert.equal(selfSignup.status, 201, JSON.stringify(selfSignup.json));
+    assert.equal((await Driver.findOne({ mobileNo: '9700000014' })).isVerified, false);
+  });
+
+  it('cannot be verified or unverified by an executive afterwards: that stays with the admin', async () => {
+    const driver = await Driver.findOne({ mobileNo: '9700000013' });
+    const result = await api('PUT', `/api/admin/drivers/${driver._id}/verify`, tokens.hk, { isVerified: true });
+    assert.equal(result.status, 403);
+    assert.equal((await Driver.findById(driver._id)).isVerified, false);
   });
 });
 

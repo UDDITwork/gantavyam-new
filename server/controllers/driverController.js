@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const config = require('../config/config');
 const path = require('path');
 const mongoose = require('../db');
+const { isExecutive } = require('../utils/podScope');
 
 // @desc    Register new driver (by driver signup)
 // @route   POST /api/drivers/register
@@ -212,7 +213,10 @@ exports.registerDriver = async (req, res) => {
       insurancePolicyNo: req.body.insurancePolicyNo,
       insurancePolicyPhoto: filePaths.insurancePolicyPhoto,
       password: hashedPassword,
-      isVerified: (req.user && req.user.role === 'admin') ? true : false
+      // A driver registered by an executive is verified at once: the executive registers drivers in person at
+      // their pickup point. Anyone else (a driver signing up on their own, or an admin as before) waits until an
+      // admin verifies the driver.
+      isVerified: ((req.user && req.user.role === 'admin') || isExecutive(req.admin)) ? true : false
     };
 
     // Create and save new driver
