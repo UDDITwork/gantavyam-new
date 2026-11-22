@@ -456,6 +456,61 @@ describe('manual booking is pinned to the pod', () => {
   });
 });
 
+describe('the fare on the screen has to be the fare of the booking', () => {
+  const trip = (extra = {}) => ({
+    pickupStation: PC,
+    pickupLocation: PC,
+    dropLocation: 'Paharganj, New Delhi',
+    dropCoordinates: { lat: 28.6430, lng: 77.2123 },
+    vehicleType: 'auto',
+    estimatedFare: 106,
+    distance: 3.78,
+    userPhone: '9000000001',
+    userName: 'Test',
+    paymentStatus: 'collected',
+    paymentMethod: 'cash',
+    fareBreakdown: { customerTotalFare: 106, driverFare: 90, platformEarning: 16, isNightCharge: true, nightChargeUserAmount: 25, nightChargeDriverAmount: 18 },
+    ...extra
+  });
+
+  it('accepts a booking whose screen fare is the calculated fare', async () => {
+    const result = await api('POST', '/api/admin/submit-to-fleet-manager', tokens.boss, trip());
+    assert.equal(result.status, 200, JSON.stringify(result.json));
+    const stored = await RideRequest.findOne({ bookingId: result.json.booking.bookingId });
+    assert.equal(stored.estimatedFare, 106);
+    assert.equal(stored.driverFare, 90);
+  });
+
+  it('accepts the fare as text and a rounding difference of up to one rupee', async () => {
+    assert.equal((await api('POST', '/api/admin/submit-to-fleet-manager', tokens.boss, trip({ estimatedFare: '106' }))).status, 200);
+    assert.equal((await api('POST', '/api/admin/submit-to-fleet-manager', tokens.boss, trip({ estimatedFare: 105.6 }))).status, 200);
+  });
+
+  it('refuses a booking whose screen fare is a placeholder or an old price (the Rs 40 that was shown instead of Rs 106)', async () => {
+    const before = await RideRequest.countDocuments({});
+    for (const shown of [40, '40', 'Calculating...', 0, 25, 80]) {
+      const result = await api('POST', '/api/admin/submit-to-fleet-manager', tokens.boss, trip({ estimatedFare: shown }));
+      assert.equal(result.status, 400, `screen fare ${shown}`);
+      assert.equal(result.json.code, 'FARE_MISMATCH');
+    }
+    // the same for an executive, and for the booking that is sent straight to a driver
+    assert.equal((await api('POST', '/api/admin/submit-to-fleet-manager', tokens.pc, trip({ estimatedFare: 40 }))).status, 400);
+    assert.equal((await api('POST', '/api/admin/manual-booking', tokens.boss, trip({ estimatedFare: 40 }))).status, 400);
+    assert.equal(await RideRequest.countDocuments({}), before, 'nothing was booked');
+  });
+
+  it('does not check anything when the page sent no screen fare or no breakdown (the server then works the fare out itself)', async () => {
+    const noScreenFare = trip();
+    delete noScreenFare.estimatedFare;
+    assert.equal((await api('POST', '/api/admin/submit-to-fleet-manager', tokens.boss, noScreenFare)).status, 200);
+
+    const noBreakdown = trip({ estimatedFare: 40 });
+    delete noBreakdown.fareBreakdown;
+    const result = await api('POST', '/api/admin/submit-to-fleet-manager', tokens.boss, noBreakdown);
+    assert.notEqual(result.status, 400, JSON.stringify(result.json));
+  });
+});
+
 describe('live updates are split by pod', () => {
   let boss;
   let hkExec;

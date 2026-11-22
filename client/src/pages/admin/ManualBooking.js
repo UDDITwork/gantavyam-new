@@ -131,33 +131,24 @@ const ManualBooking = () => {
       ? 'Go back to the first step to change the pickup location'
       : '';
 
+  // The fare a customer pays for a vehicle type, taken from the latest fare estimate. null until the estimate is there:
+  // a fare is never made up, and never copied from an earlier moment (an old copy once showed a placeholder price).
+  const fareOf = (vehicleType) => {
+    const estimate = fareEstimates?.estimates?.[vehicleType];
+    const fare = estimate ? (estimate.customerTotalFare ?? estimate.totalFare) : null;
+    return typeof fare === 'number' && fare > 0 ? fare : null;
+  };
+
+  // The fare of the selected vehicle. Everything on screen and in the booking uses this, so the amount to collect
+  // always matches the fare breakdown shown with it.
+  const selectedFare = fareOf(selectedVehicle?.type);
+
   // Helper function to get vehicle options with icons
   const getVehicleOptions = () => {
     return [
-      { 
-        type: 'bike', 
-        label: 'Bike',
-        icon: <FaMotorcycle />,
-        available: true,
-        eta: '2 mins away',
-        price: fareEstimates?.estimates?.bike?.customerTotalFare || fareEstimates?.estimates?.bike?.totalFare || (fareEstimates ? 'Calculating...' : 25)
-      },
-      { 
-        type: 'auto', 
-        label: 'Auto',
-        icon: <FaTaxi />,
-        available: true,
-        eta: '3 mins away',
-        price: fareEstimates?.estimates?.auto?.customerTotalFare || fareEstimates?.estimates?.auto?.totalFare || (fareEstimates ? 'Calculating...' : 40)
-      },
-      { 
-        type: 'car', 
-        label: 'Car',
-        icon: <FaCar />,
-        available: true,
-        eta: '5 mins away',
-        price: fareEstimates?.estimates?.car?.customerTotalFare || fareEstimates?.estimates?.car?.totalFare || (fareEstimates ? 'Calculating...' : 80)
-      }
+      { type: 'bike', label: 'Bike', icon: <FaMotorcycle />, available: true, eta: '2 mins away', price: fareOf('bike') },
+      { type: 'auto', label: 'Auto', icon: <FaTaxi />, available: true, eta: '3 mins away', price: fareOf('auto') },
+      { type: 'car', label: 'Car', icon: <FaCar />, available: true, eta: '5 mins away', price: fareOf('car') }
     ];
   };
 
@@ -174,8 +165,7 @@ const ManualBooking = () => {
     
     return {
       ...baseVehicle,
-      available: true,
-      price: fareEstimates?.estimates?.[vehicleType]?.customerTotalFare || fareEstimates?.estimates?.[vehicleType]?.totalFare || (fareEstimates ? 'Calculating...' : (vehicleType === 'bike' ? 25 : vehicleType === 'auto' ? 40 : 80))
+      available: true
     };
   };
 
@@ -186,8 +176,7 @@ const ManualBooking = () => {
       type: selectedVehicle.type,
       label: selectedVehicle.label,
       available: selectedVehicle.available,
-      eta: selectedVehicle.eta,
-      price: selectedVehicle.price
+      eta: selectedVehicle.eta
     } : null;
     
     const state = {
@@ -1381,6 +1370,10 @@ const ManualBooking = () => {
   const handleVehicleSelection = (vehicleType) => {
     const vehicleOptions = getVehicleOptions();
     const vehicle = vehicleOptions.find(v => v.type === vehicleType);
+    if (!vehicle || vehicle.price === null) {
+      toast.error('The fare is still being calculated. Please wait a moment.');
+      return;
+    }
     setSelectedVehicle(vehicle);
     // Proceed to driver selection instead of final confirmation
     fetchAvailableDrivers(vehicleType);
@@ -1594,7 +1587,7 @@ const ManualBooking = () => {
         pickupLocation: currentBooth.name,
         dropLocation: dropLocation,
         vehicleType: selectedVehicle.type,
-        estimatedFare: selectedVehicle.price,
+        estimatedFare: selectedFare,
         distance: fareEstimates?.distance || 0,
         userPhone: userPhone,
         userName: userName,
@@ -1823,8 +1816,8 @@ const ManualBooking = () => {
         throw new Error('Vehicle type is missing');
       }
       
-      if (!selectedVehicle?.price) {
-        throw new Error('Vehicle price is missing');
+      if (!selectedFare) {
+        throw new Error('The fare is not ready yet. Please wait a moment and try again.');
       }
       
       // Enhanced phone validation
@@ -1852,7 +1845,7 @@ const ManualBooking = () => {
         pickupLocation: currentBooth.name,
         dropLocation: dropLocation,
         vehicleType: selectedVehicle.type,
-        estimatedFare: selectedVehicle.price,
+        estimatedFare: selectedFare,
         distance: fareEstimates?.distance || 0,
         userPhone: userPhone,
         userName: userName,
@@ -1974,7 +1967,7 @@ const ManualBooking = () => {
         dropLocation: dropLocation,
         dropCoordinates: dropCoordinates,
         vehicleType: selectedVehicle.type,
-        estimatedFare: selectedVehicle.price,
+        estimatedFare: selectedFare,
         distance: fareEstimates?.distance || 0,
         userPhone: userPhone,
         userName: userName,
@@ -2796,10 +2789,15 @@ const ManualBooking = () => {
                   <div
                     key={vehicle.type}
                     onClick={() => handleVehicleSelection(vehicle.type)}
-                    className={`p-6 rounded-lg border-2 cursor-pointer transition-all ${
+                    aria-disabled={vehicle.price === null}
+                    className={`p-6 rounded-lg border-2 transition-all ${
+                      vehicle.price === null ? 'cursor-not-allowed opacity-60 ' : 'cursor-pointer '
+                    }${
                       selectedVehicle?.type === vehicle.type
                         ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-300 hover:border-blue-300'
+                        : vehicle.price === null
+                          ? 'border-gray-300'
+                          : 'border-gray-300 hover:border-blue-300'
                     }`}
                   >
                     <div className="text-center">
@@ -2809,7 +2807,9 @@ const ManualBooking = () => {
                       <h3 className="font-medium text-lg">{vehicle.label}</h3>
                       <div className="mt-3">
                         <div className="text-2xl font-bold text-green-600">
-                          {typeof vehicle.price === 'number' ? `₹${vehicle.price}` : vehicle.price}
+                          {typeof vehicle.price === 'number'
+                            ? `₹${vehicle.price}`
+                            : (isCalculatingFare || isCalculatingRoute ? 'Calculating fare...' : 'Fare not available')}
                         </div>
                         <div className="text-sm text-gray-600">
                           {vehicle.eta}
@@ -3053,7 +3053,7 @@ const ManualBooking = () => {
               <div className="bg-green-50 border-2 border-green-500 rounded-lg p-6 mb-6 text-center">
                 <p className="text-sm text-gray-600 mb-2">Total Amount to Collect</p>
                 <p className="text-5xl font-bold text-green-600">
-                  ₹{selectedVehicle?.price}
+                  {selectedFare !== null ? `₹${selectedFare}` : 'Calculating...'}
                 </p>
                 {fareEstimates?.estimates?.[selectedVehicle?.type] && fareEstimates.detailed && (
                   <div className="mt-4 text-xs text-gray-600 space-y-1">
@@ -3114,7 +3114,7 @@ const ManualBooking = () => {
               {paymentMode === 'cash' && (
                 <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-4 mb-6">
                   <p className="text-center text-yellow-800 font-medium">
-                    💵 Collect ₹{selectedVehicle?.price} in cash from the customer
+                    💵 Collect ₹{selectedFare} in cash from the customer
                   </p>
                 </div>
               )}
@@ -3223,7 +3223,7 @@ const ManualBooking = () => {
                       </div>
                       <div>
                         <p className="text-gray-500">Fare</p>
-                        <p className="font-medium text-green-600">₹{selectedVehicle?.price || currentFmBooking?.estimatedFare}</p>
+                        <p className="font-medium text-green-600">₹{selectedFare ?? currentFmBooking?.estimatedFare}</p>
                       </div>
                       <div>
                         <p className="text-gray-500">Payment</p>
@@ -3400,7 +3400,7 @@ const ManualBooking = () => {
                 <div className="grid grid-cols-3 gap-4 text-sm">
                   <div>
                     <p><strong>Vehicle:</strong> {selectedVehicle?.label}</p>
-                    <p><strong>Customer Fare:</strong> ₹{selectedVehicle?.price}</p>
+                    <p><strong>Customer Fare:</strong> ₹{selectedFare}</p>
                     {fareEstimates?.detailed && fareEstimates?.estimates?.[selectedVehicle?.type] && (
                       <div className="text-xs mt-1 space-y-0.5">
                         <p>Driver: ₹{fareEstimates.estimates[selectedVehicle.type].driverFare}</p>
@@ -4148,7 +4148,7 @@ const ManualBooking = () => {
                     </div>
                     <div className="text-right">
                       <div className="text-3xl font-bold text-green-600">
-                        {typeof selectedVehicle?.price === 'number' ? `₹${selectedVehicle.price}` : selectedVehicle?.price || 'N/A'}
+                        {selectedFare !== null ? `₹${selectedFare}` : 'N/A'}
                       </div>
                       <p className="text-sm text-gray-600">Total Fare</p>
                     </div>

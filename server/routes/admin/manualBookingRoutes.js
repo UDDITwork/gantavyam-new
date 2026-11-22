@@ -16,6 +16,24 @@ const { calculateFare } = require('../../utils/fareCalculator');
 const { isExecutive, podOf, canAccessDoc, boothCondition, forbidden } = require('../../utils/podScope');
 const { toAdmins } = require('../../utils/adminRealtime');
 
+// The fare the screen showed (estimatedFare) has to be the fare the booking is made with (fareBreakdown). An older
+// version of the booking page sometimes copied a placeholder price (for example Rs 40 for an auto) as the "amount to
+// collect" while the real fare was Rs 106: such a page is told to reload instead of booking against a wrong amount.
+const fareOnScreenDiffers = (estimatedFare, fareBreakdown) => {
+  if (estimatedFare === undefined || estimatedFare === null) return false;
+  if (!fareBreakdown || fareBreakdown.customerTotalFare === undefined || fareBreakdown.customerTotalFare === null) return false;
+  const shown = Number(estimatedFare);
+  const calculated = Number(fareBreakdown.customerTotalFare);
+  if (!Number.isFinite(calculated)) return false;
+  return !Number.isFinite(shown) || Math.abs(shown - calculated) > 1;
+};
+
+const FARE_MISMATCH_RESPONSE = {
+  success: false,
+  code: 'FARE_MISMATCH',
+  message: 'The fare on your screen does not match the fare calculated for this trip. Please reload the page and book again.'
+};
+
 // Executives book only at their own pickup point, whatever the request says
 const pinPickupToPod = (req, res, next) => {
   if (isExecutive(req.admin)) {
@@ -67,6 +85,11 @@ router.post('/manual-booking', adminProtect, checkPermission(PERMISSIONS.RIDES_M
     }
 
     console.log(`✅ Valid phone number received: ${userPhone}`);
+
+    if (fareOnScreenDiffers(estimatedFare, fareBreakdown)) {
+      console.warn(`⚠️ Fare mismatch: screen showed ${estimatedFare}, calculated ${fareBreakdown.customerTotalFare} - booking refused`);
+      return res.status(400).json(FARE_MISMATCH_RESPONSE);
+    }
 
     // Find or create user
     let user;
@@ -1203,6 +1226,11 @@ router.post('/submit-to-fleet-manager', adminProtect, checkPermission(PERMISSION
         success: false,
         message: 'Invalid phone number. Must be 10 digits starting with 6-9'
       });
+    }
+
+    if (fareOnScreenDiffers(estimatedFare, fareBreakdown)) {
+      console.warn(`⚠️ Fare mismatch: screen showed ${estimatedFare}, calculated ${fareBreakdown.customerTotalFare} - booking refused`);
+      return res.status(400).json(FARE_MISMATCH_RESPONSE);
     }
 
     console.log(`\n=== SUBMIT TO FLEET MANAGER ===`);
