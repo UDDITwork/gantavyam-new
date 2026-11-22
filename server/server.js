@@ -158,12 +158,9 @@ app.get("/api/health", (req, res) => {
 app.get('/api/status', async (req, res) => {
   try {
     const Driver = mongoose.model('Driver');
+    // Public route: counts only, never driver names or phone numbers
     const totalDrivers = await Driver.countDocuments();
-    const recentDrivers = await Driver.find()
-      .sort({ registrationDate: -1 })
-      .limit(5)
-      .select('fullName mobileNo registrationDate');
-    
+
     res.json({
       status: 'success',
       mongodb: {
@@ -171,8 +168,7 @@ app.get('/api/status', async (req, res) => {
         state: mongoose.STATES[mongoose.connection.readyState]
       },
       data: {
-        totalDrivers,
-        recentDrivers
+        totalDrivers
       }
     });
   } catch (error) {

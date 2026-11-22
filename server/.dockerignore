@@ -13,3 +13,4 @@ Dockerfile
 data
 *.db
 *.db-*
+seed-data

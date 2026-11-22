@@ -2,6 +2,7 @@
 const Driver = require('../models/Driver');
 const User = require('../models/User');
 const RideRequest = require('../models/RideRequest');
+const RideHistory = require('../models/RideHistory');
 const BoothQueue = require('../models/BoothQueue');
 const PickupLocation = require('../models/PickupLocation');
 const { createContextLogger } = require('../config/logger');
@@ -216,13 +217,16 @@ exports.getDashboardStats = async (req, res) => {
   try {
     logger.info('Admin fetching dashboard statistics', { adminId: req.admin?.id });
 
-    // Get counts
-    const [userCount, driverCount, rideCount, pendingDrivers] = await Promise.all([
+    // A ride that is completed leaves the ride requests and is kept in the ride history, so every ride
+    // figure on the dashboard counts both places.
+    const [userCount, driverCount, requestCount, historyCount, pendingDrivers] = await Promise.all([
       User.countDocuments(),
       Driver.countDocuments({ isVerified: true }),
       RideRequest.countDocuments(),
+      RideHistory.countDocuments(),
       Driver.countDocuments({ isVerified: false })
     ]);
+    const rideCount = requestCount + historyCount;
 
     // Get today's ride count
     const today = new Date();
@@ -230,45 +234,71 @@ exports.getDashboardStats = async (req, res) => {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const todayRides = await RideRequest.countDocuments({
-      createdAt: { $gte: today, $lt: tomorrow }
-    });
+    const todayRequestFilter = { createdAt: { $gte: today, $lt: tomorrow } };
+    const todayHistoryFilter = { 'timestamps.requested': { $gte: today, $lt: tomorrow } };
+    const completedRequestStatuses = ['completed', 'ride_ended'];
+    const cancelledRequestStatuses = ['cancelled', 'cancelled_by_admin', 'cancelled_by_fm', 'cancelled_by_user', 'cancelled_by_driver'];
+
+    const [todayRequests, todayHistory] = await Promise.all([
+      RideRequest.countDocuments(todayRequestFilter),
+      RideHistory.countDocuments(todayHistoryFilter)
+    ]);
+    const todayRides = todayRequests + todayHistory;
 
     // Get ride counts by status
-    const [activeRides, completedRides, cancelledRides] = await Promise.all([
+    const [activeRides, completedRequests, cancelledRequests, completedHistory, cancelledHistory] = await Promise.all([
       RideRequest.countDocuments({
         status: { $in: ['pending', 'pending_fm', 'driver_assigned', 'ride_started'] }
       }),
-      RideRequest.countDocuments({
-        status: { $in: ['completed', 'ride_ended'] }
-      }),
-      RideRequest.countDocuments({
-        status: { $in: ['cancelled', 'cancelled_by_admin', 'cancelled_by_fm', 'cancelled_by_user', 'cancelled_by_driver'] }
-      })
+      RideRequest.countDocuments({ status: { $in: completedRequestStatuses } }),
+      RideRequest.countDocuments({ status: { $in: cancelledRequestStatuses } }),
+      RideHistory.countDocuments({ status: 'completed' }),
+      RideHistory.countDocuments({ status: 'cancelled' })
     ]);
+    const completedRides = completedRequests + completedHistory;
+    const cancelledRides = cancelledRequests + cancelledHistory;
 
     // Get online drivers count
     const activeDrivers = await Driver.countDocuments({ isOnline: true, isVerified: true });
 
     // Get today's completed and cancelled rides
-    const [completedToday, cancelledToday] = await Promise.all([
-      RideRequest.countDocuments({
-        createdAt: { $gte: today, $lt: tomorrow },
-        status: { $in: ['completed', 'ride_ended'] }
-      }),
-      RideRequest.countDocuments({
-        createdAt: { $gte: today, $lt: tomorrow },
-        status: { $in: ['cancelled', 'cancelled_by_admin', 'cancelled_by_fm', 'cancelled_by_user', 'cancelled_by_driver'] }
-      })
+    const [completedTodayRequests, cancelledTodayRequests, completedTodayHistory, cancelledTodayHistory] = await Promise.all([
+      RideRequest.countDocuments({ ...todayRequestFilter, status: { $in: completedRequestStatuses } }),
+      RideRequest.countDocuments({ ...todayRequestFilter, status: { $in: cancelledRequestStatuses } }),
+      RideHistory.countDocuments({ ...todayHistoryFilter, status: 'completed' }),
+      RideHistory.countDocuments({ ...todayHistoryFilter, status: 'cancelled' })
     ]);
+    const completedToday = completedTodayRequests + completedTodayHistory;
+    const cancelledToday = cancelledTodayRequests + cancelledTodayHistory;
 
-    // Get recent rides for activity feed
-    const recentRides = await RideRequest.find()
-      .populate('userId', 'name')
-      .populate('driverId', 'name')
-      .sort({ createdAt: -1 })
-      .limit(5)
-      .select('status pickupLocation destination createdAt userId driverId');
+    // Get recent rides for activity feed (open and cancelled requests together with the latest completed rides)
+    const [recentRequests, recentHistory] = await Promise.all([
+      RideRequest.find()
+        .populate('userId', 'name')
+        .populate('driverId', 'name')
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .select('status pickupLocation destination createdAt userId driverId'),
+      RideHistory.find()
+        .populate('userId', 'name')
+        .sort({ 'timestamps.requested': -1 })
+        .limit(5)
+        .select('status pickupLocation dropLocation timestamps userId driverName')
+    ]);
+    const recentRides = [
+      ...recentRequests,
+      ...recentHistory.map((ride) => ({
+        _id: ride._id,
+        status: ride.status,
+        pickupLocation: ride.pickupLocation,
+        destination: ride.dropLocation && ride.dropLocation.address,
+        createdAt: ride.timestamps && ride.timestamps.requested,
+        userId: ride.userId,
+        driverId: ride.driverName ? { name: ride.driverName } : null
+      }))
+    ]
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, 5);
 
     const stats = {
       userCount,

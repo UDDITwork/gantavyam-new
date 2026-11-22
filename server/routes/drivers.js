@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const { dualUploadFields, processDualUploads } = require('../config/dualStorage');
-const { protect } = require('../middleware/auth');
+const { protect, adminProtect } = require('../middleware/auth');
 const { normalizeDriverData, normalizeQueryParams } = require('../middleware/normalizeDriverData');
 const {
   registerDriver,
@@ -901,8 +901,9 @@ router.post('/collect-payment', protect, async (req, res) => {
   }
 });
 
-// Debug endpoint to check driver online status and socket connections
-router.get('/debug/status', async (req, res) => {
+// Debug endpoint to check driver online status and socket connections.
+// It lists every driver's name and phone number, so it is for signed-in admins only.
+router.get('/debug/status', adminProtect, async (req, res) => {
   try {
     console.log('\n=== DRIVER DEBUG STATUS CHECK ===');
     

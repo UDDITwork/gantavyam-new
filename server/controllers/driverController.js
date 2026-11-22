@@ -618,17 +618,7 @@ exports.printDriverStats = async () => {
     console.log(`\n[DRIVER STATISTICS] Total drivers in database: ${totalCount}`);
     
     if (totalCount > 0) {
-      // Get recent drivers
-      const recentDrivers = await Driver.find()
-        .sort({ registrationDate: -1 })
-        .limit(5)
-        .select('_id fullName mobileNo registrationDate');
-      
-      console.log('[DRIVER STATISTICS] 5 most recent drivers:');
-      recentDrivers.forEach((driver, idx) => {
-        console.log(`  ${idx+1}. ${driver.fullName} (${driver.mobileNo}) - Registered: ${driver.registrationDate}`);
-      });
-      
+      // Counts only: driver names and phone numbers must not end up in the logs
       // Get verified vs unverified count
       const verifiedCount = await Driver.countDocuments({ isVerified: true });
       console.log(`[DRIVER STATISTICS] Verified: ${verifiedCount}/${totalCount} (${Math.round(verifiedCount/totalCount*100)}%)`);
