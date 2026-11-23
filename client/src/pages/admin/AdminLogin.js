@@ -5,7 +5,7 @@ import { clearTokensForType } from '../../services/tokenService';
 import { API_URL } from '../../config';
 import { useAdmin } from '../../contexts/AdminContext';
 import { getPodByKey } from '../../config/pickupPods';
-import { executiveLoginPath, forgetExecutiveLogin, rememberedExecutiveLogin } from '../../config/executiveLogin';
+import { executiveLoginPath, forgetExecutiveLogin } from '../../config/executiveLogin';
 
 const AdminLogin = () => {
   const [email, setEmail] = useState('');
@@ -16,16 +16,11 @@ const AdminLogin = () => {
   const location = useLocation();
   const { updateAdmin } = useAdmin();
 
-  // This is the admin login. A browser where an executive logged in goes on to that executive's own login page
-  // (after logging out, or when the session has run out); "?portal=admin" is the way to the admin login from there.
+  // This is the admin login and it always stays the admin login, whatever was used on this browser before.
+  // "?portal=admin" (the link on the executive login page) also makes the browser forget that an executive used it.
   useEffect(() => {
-    if (new URLSearchParams(location.search).get('portal') === 'admin') {
-      forgetExecutiveLogin();
-      return;
-    }
-    const executiveLogin = rememberedExecutiveLogin();
-    if (executiveLogin) navigate(executiveLogin, { replace: true });
-  }, [location.search, navigate]);
+    if (new URLSearchParams(location.search).get('portal') === 'admin') forgetExecutiveLogin();
+  }, [location.search]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

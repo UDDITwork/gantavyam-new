@@ -9,6 +9,7 @@ import { useAdmin } from '../../contexts/AdminContext';
 import { initializeSocket, getSocket } from '../../services/socket';
 import { getImageUrl } from '../../utils/imageUtils';
 import toast, { Toaster } from 'react-hot-toast';
+import { loginPathAfterSessionEnds } from '../../config/executiveLogin';
 
 const STORAGE_KEY = 'manualBookingState';
 // The pickup point an admin picked last (kept for the browser session only)
@@ -248,7 +249,7 @@ const ManualBooking = () => {
       const token = localStorage.getItem('adminToken');
       if (!token) {
         console.log('[ManualBooking] No admin token found');
-        navigate('/admin/login');
+        navigate(loginPathAfterSessionEnds());
         return;
       }
       

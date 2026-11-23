@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { loginPathAfterSessionEnds } from '../../config/executiveLogin';
 
 const ProtectedAdminRoute = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -12,7 +13,7 @@ const ProtectedAdminRoute = ({ children }) => {
       
       if (!token) {
         console.log('🔒 [Admin Auth] No admin token found, redirecting to login');
-        navigate('/admin/login');
+        navigate(loginPathAfterSessionEnds());
         return;
       }
 
@@ -25,7 +26,7 @@ const ProtectedAdminRoute = ({ children }) => {
           console.log('🔒 [Admin Auth] Token expired, redirecting to login');
           localStorage.removeItem('adminToken');
           localStorage.removeItem('admin');
-          navigate('/admin/login');
+          navigate(loginPathAfterSessionEnds());
           return;
         }
 
@@ -35,7 +36,7 @@ const ProtectedAdminRoute = ({ children }) => {
         console.error('🔒 [Admin Auth] Invalid token format:', error);
         localStorage.removeItem('adminToken');
         localStorage.removeItem('admin');
-        navigate('/admin/login');
+        navigate(loginPathAfterSessionEnds());
         return;
       }
       

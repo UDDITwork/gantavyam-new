@@ -41,6 +41,11 @@ export const forgetExecutiveLogin = () => {
   }
 };
 
+// Where the app sends someone whose session is gone (they logged out, or the token is missing or has run out): the
+// executive login page used on this browser, else the admin login page. The admin login page itself never redirects:
+// typing /admin/login always shows the admin login.
+export const loginPathAfterSessionEnds = () => rememberedExecutiveLogin() || '/admin/login';
+
 export const rememberedExecutiveLogin = () => {
   try {
     const path = localStorage.getItem(EXECUTIVE_LOGIN_KEY);

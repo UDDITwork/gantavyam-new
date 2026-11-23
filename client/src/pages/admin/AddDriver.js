@@ -28,6 +28,7 @@ import {
   getNormalizedValue,
   getFieldErrorMessage
 } from '../../utils/validationUtils';
+import { loginPathAfterSessionEnds } from '../../config/executiveLogin';
 
 const steps = [
   { key: 'personal', label: 'Personal Info', icon: <FiUser /> },
@@ -107,7 +108,7 @@ const AddDriver = () => {
   useEffect(() => {
     const token = localStorage.getItem('adminToken');
     if (!token) {
-      navigate('/admin/login');
+      navigate(loginPathAfterSessionEnds());
     }
   }, [navigate]);
 

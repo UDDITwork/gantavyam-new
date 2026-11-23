@@ -6,6 +6,7 @@ import { getImageUrl } from '../../utils/imageUtils';
 import ModernCard from '../../components/admin/ModernCard';
 import api from '../../services/api';
 import { useAdmin } from '../../contexts/AdminContext';
+import { loginPathAfterSessionEnds } from '../../config/executiveLogin';
 
 const QueueManagement = () => {
   const { isExecutive } = useAdmin();
@@ -50,7 +51,7 @@ const QueueManagement = () => {
   useEffect(() => {
     const token = localStorage.getItem('adminToken');
     if (!token) {
-      window.location.href = '/admin/login';
+      window.location.href = loginPathAfterSessionEnds();
     } else {
       // Initialize socket for real-time updates
       const initializeSocketAsync = async () => {

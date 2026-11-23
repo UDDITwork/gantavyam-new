@@ -43,6 +43,7 @@ import ForgotPassword from './pages/user/ForgotPassword';
 // Test Pages
 import UserBooking from './pages/test/UserBooking';
 import DriverView from './pages/test/DriverView';
+import { loginPathAfterSessionEnds } from './config/executiveLogin';
 
 // Move these OUTSIDE the component to prevent recreation on each render
 const GOOGLE_MAPS_API_KEY = process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
@@ -85,7 +86,7 @@ const ExecutiveRouteGuard = ({ children }) => {
           Your account cannot use any admin screen yet. Please ask the admin to check your access.
         </p>
         <button
-          onClick={() => { clearAdmin(); navigate('/admin/login'); }}
+          onClick={() => { clearAdmin(); navigate(loginPathAfterSessionEnds()); }}
           className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
         >
           Log out

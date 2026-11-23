@@ -3,6 +3,7 @@ import { FaSearch, FaBell, FaUserCircle, FaChevronDown, FaSignOutAlt, FaCog, FaC
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAdmin } from '../../contexts/AdminContext';
 import { getSocket } from '../../services/socket';
+import { loginPathAfterSessionEnds } from '../../config/executiveLogin';
 
 const AdminHeader = () => {
   const [showUserDropdown, setShowUserDropdown] = useState(false);
@@ -158,7 +159,7 @@ const AdminHeader = () => {
 
   const handleLogout = () => {
     clearAdmin();
-    navigate('/admin/login');
+    navigate(loginPathAfterSessionEnds());
   };
 
   const getPageTitle = () => {
